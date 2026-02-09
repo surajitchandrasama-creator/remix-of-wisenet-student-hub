@@ -1,11 +1,26 @@
-// Update this page (the content is just a fallback if you fail to update the page)
+import DashboardHeader from "@/components/DashboardHeader";
+import TimelineSection from "@/components/TimelineSection";
+import CourseCards from "@/components/CourseCards";
+import PreReadsSidebar from "@/components/PreReadsSidebar";
 
 const Index = () => {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
-      <div className="text-center">
-        <h1 className="mb-4 text-4xl font-bold">Welcome to Your Blank App</h1>
-        <p className="text-xl text-muted-foreground">Start building your amazing project here!</p>
+    <div className="min-h-screen bg-background">
+      <DashboardHeader />
+      <div className="flex">
+        {/* Main Content - 70% */}
+        <main className="flex-1 min-w-0 p-6 space-y-6">
+          <h1 className="text-2xl font-bold text-foreground">
+            Hi, Raviteja! 👋
+          </h1>
+          <TimelineSection />
+          <CourseCards />
+        </main>
+
+        {/* Pre-reads Sidebar - 30% */}
+        <div className="hidden lg:block w-[340px] flex-shrink-0">
+          <PreReadsSidebar />
+        </div>
       </div>
     </div>
   );
