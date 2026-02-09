@@ -1,5 +1,5 @@
-import { Sparkles, X } from "lucide-react";
-import { useState } from "react";
+import { Sparkles, X, Upload, FileText } from "lucide-react";
+import { useState, useRef } from "react";
 
 interface PreReadItem {
   time: string;
@@ -61,6 +61,9 @@ const PreReadsSidebar = () => {
   const [activeSummary, setActiveSummary] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [summaryText, setSummaryText] = useState("");
+  const [uploadedFiles, setUploadedFiles] = useState<Record<string, File>>({});
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [activeUploadKey, setActiveUploadKey] = useState<string | null>(null);
 
   const handleSparkle = (task: string) => {
     if (activeSummary === task) {
@@ -74,6 +77,28 @@ const PreReadsSidebar = () => {
       setLoading(false);
       setSummaryText(mockSummaries[task] || "Summary not available for this item.");
     }, 1200);
+  };
+
+  const handleUploadClick = (key: string) => {
+    setActiveUploadKey(key);
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && activeUploadKey) {
+      setUploadedFiles((prev) => ({ ...prev, [activeUploadKey]: file }));
+    }
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    setActiveUploadKey(null);
+  };
+
+  const handleRemoveFile = (key: string) => {
+    setUploadedFiles((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
   };
 
   return (
@@ -92,7 +117,10 @@ const PreReadsSidebar = () => {
               </span>
             </div>
             <div className="space-y-2">
-              {group.items.map((item) => (
+              {group.items.map((item) => {
+                const itemKey = `${group.date}-${item.time}-${item.task}`;
+                const uploadedFile = uploadedFiles[itemKey];
+                return (
                 <div key={item.time + item.task}>
                   <div className="group flex items-start gap-3 rounded-md p-2 transition-colors hover:bg-secondary">
                     <div className="flex-1 min-w-0">
@@ -103,18 +131,39 @@ const PreReadsSidebar = () => {
                       <p className="text-sm text-muted-foreground leading-snug">
                         {item.task}
                       </p>
+                      {uploadedFile && (
+                        <div className="mt-1.5 flex items-center gap-1.5 rounded bg-primary/10 px-2 py-1 text-xs text-primary">
+                          <FileText className="h-3 w-3 flex-shrink-0" />
+                          <span className="truncate max-w-[140px]">{uploadedFile.name}</span>
+                          <button
+                            onClick={() => handleRemoveFile(itemKey)}
+                            className="ml-auto flex-shrink-0 hover:text-destructive"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      )}
                     </div>
-                    <button
-                      onClick={() => handleSparkle(item.task)}
-                      className={`mt-1 flex-shrink-0 rounded-full p-1.5 transition-colors ${
-                        activeSummary === item.task
-                          ? "bg-primary text-primary-foreground"
-                          : "text-muted-foreground hover:bg-primary/10 hover:text-primary"
-                      }`}
-                      title="Generate AI Summary"
-                    >
-                      <Sparkles className="h-4 w-4" />
-                    </button>
+                    <div className="flex flex-col gap-1 mt-1 flex-shrink-0">
+                      <button
+                        onClick={() => handleUploadClick(itemKey)}
+                        className="rounded-full p-1.5 text-muted-foreground hover:bg-primary/10 hover:text-primary transition-colors"
+                        title="Upload PDF"
+                      >
+                        <Upload className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => handleSparkle(item.task)}
+                        className={`rounded-full p-1.5 transition-colors ${
+                          activeSummary === item.task
+                            ? "bg-primary text-primary-foreground"
+                            : "text-muted-foreground hover:bg-primary/10 hover:text-primary"
+                        }`}
+                        title="Generate AI Summary"
+                      >
+                        <Sparkles className="h-4 w-4" />
+                      </button>
+                    </div>
                   </div>
                   {activeSummary === item.task && (
                     <div className="mx-2 mt-1 mb-1 rounded-md border bg-secondary p-3 animate-in fade-in slide-in-from-top-1 duration-200">
@@ -142,11 +191,19 @@ const PreReadsSidebar = () => {
                     </div>
                   )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         ))}
       </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".pdf"
+        onChange={handleFileChange}
+        className="hidden"
+      />
     </aside>
   );
 };
