@@ -2,6 +2,7 @@ import DashboardHeader from "@/components/DashboardHeader";
 import TimelineSection from "@/components/TimelineSection";
 import CourseCards from "@/components/CourseCards";
 import PreReadsSidebar from "@/components/PreReadsSidebar";
+import CourseOverview from "@/components/CourseOverview";
 
 const Index = () => {
   return (
@@ -11,10 +12,11 @@ const Index = () => {
         {/* Main Content - 70% */}
         <main className="flex-1 min-w-0 p-6 space-y-6">
           <h1 className="text-2xl font-bold text-foreground">
-            Hi, Raviteja! 👋
+            Welcome to Wisenet Student Portal
           </h1>
           <TimelineSection />
           <CourseCards />
+          <CourseOverview />
         </main>
 
         {/* Pre-reads Sidebar - 30% */}
