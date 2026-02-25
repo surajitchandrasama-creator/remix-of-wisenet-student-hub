@@ -1,5 +1,6 @@
 import { Sparkles, X, Upload, FileText, ChevronDown, Loader2 } from "lucide-react";
 import { useState } from "react";
+import ReactMarkdown from 'react-markdown';
 import { usePreReadPdfs } from "@/hooks/usePreReadPdfs";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
@@ -151,7 +152,9 @@ const PdfCard = ({ pdf, onRemove, onSummarize }: PdfCardProps) => {
             <ChevronDown className="h-3 w-3" /> Summary
           </CollapsibleTrigger>
           <CollapsibleContent>
-            <p className="mt-1 leading-relaxed text-foreground">{pdf.summary}</p>
+            <div className="mt-2 prose prose-sm prose-invert max-w-none text-foreground leading-relaxed">
+              <ReactMarkdown>{pdf.summary}</ReactMarkdown>
+            </div>
           </CollapsibleContent>
         </Collapsible>
       )}
