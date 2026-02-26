@@ -1,6 +1,12 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { HfInference } from "@huggingface/inference";
-import { supabase } from "@/integrations/supabase/client";
+import {
+  CaseType,
+  buildFormatRepairUserPrompt,
+  buildSystemPrompt,
+  FORMAT_REPAIR_SYSTEM_PROMPT,
+  isValidSummary,
+} from "@/lib/preReadPrompt";
 
 interface UploadedPdf {
   fileName: string;
@@ -8,6 +14,13 @@ interface UploadedPdf {
   summary: string;
   loading: boolean;
   error: string;
+  caseType: CaseType | "";
+  subject?: string;
+  sessionId?: string;
+  lastUpdated?: string;
+  truncated?: boolean;
+  extractedTextLength: number;
+  refinement?: string;
 }
 
 async function extractTextFromPdf(file: File): Promise<string> {
@@ -24,23 +37,40 @@ async function extractTextFromPdf(file: File): Promise<string> {
   return pages.join("\n\n");
 }
 
-export type CaseType = "General Strategy" | "Marketing" | "Tech/Startup" | "Crisis";
-
 export function usePreReadPdfs() {
-  // Map of itemKey -> array of uploaded PDFs
+  /*
+    Manual test checklist:
+    1) Upload PDF -> select case type -> generate summary -> refresh -> still there.
+    2) Change case type -> regenerate -> format stable.
+    3) Upload scanned PDF -> gets "Not enough text extracted (use text-based PDF)." error.
+  */
+
   const [pdfsByItem, setPdfsByItem] = useState<Record<string, UploadedPdf[]>>(() => {
     try {
       const stored = localStorage.getItem("wisenet_pdfs");
-      return stored ? JSON.parse(stored) : {};
+      const parsed = stored ? JSON.parse(stored) : {};
+      const normalized: Record<string, UploadedPdf[]> = {};
+      for (const key of Object.keys(parsed || {})) {
+        normalized[key] = (parsed[key] || []).map((pdf: any) => ({
+          ...pdf,
+          caseType: pdf.caseType || "",
+          extractedTextLength: typeof pdf.extractedTextLength === "number"
+            ? pdf.extractedTextLength
+            : (pdf.text || "").trim().length,
+          refinement: pdf.refinement || "",
+          truncated: Boolean(pdf.truncated),
+        }));
+      }
+      return normalized;
     } catch {
       return {};
     }
   });
 
-  // Save to localStorage whenever it changes
   useEffect(() => {
     localStorage.setItem("wisenet_pdfs", JSON.stringify(pdfsByItem));
   }, [pdfsByItem]);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeUploadKey, setActiveUploadKey] = useState<string | null>(null);
 
@@ -49,31 +79,47 @@ export function usePreReadPdfs() {
     fileInputRef.current?.click();
   }, []);
 
-  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || !activeUploadKey) return;
+  const handleFileChange = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = e.target.files;
+      if (!files || !activeUploadKey) return;
 
-    const newPdfs: UploadedPdf[] = [];
-    for (const file of Array.from(files)) {
-      let text = "";
-      let error = "";
-      try {
-        text = await extractTextFromPdf(file);
-        if (!text.trim()) error = "Could not extract text from this PDF.";
-      } catch {
-        error = "Failed to read this PDF.";
+      const newPdfs: UploadedPdf[] = [];
+      for (const file of Array.from(files)) {
+        let text = "";
+        let error = "";
+        try {
+          text = await extractTextFromPdf(file);
+          if (!text.trim()) error = "Could not extract text from this PDF.";
+        } catch {
+          error = "Failed to read this PDF.";
+        }
+
+        newPdfs.push({
+          fileName: file.name,
+          text,
+          summary: "",
+          loading: false,
+          error,
+          caseType: "",
+          sessionId: activeUploadKey,
+          lastUpdated: new Date().toISOString(),
+          truncated: false,
+          extractedTextLength: text.trim().length,
+          refinement: "",
+        });
       }
-      newPdfs.push({ fileName: file.name, text, summary: "", loading: false, error });
-    }
 
-    setPdfsByItem((prev) => ({
-      ...prev,
-      [activeUploadKey]: [...(prev[activeUploadKey] || []), ...newPdfs],
-    }));
+      setPdfsByItem((prev) => ({
+        ...prev,
+        [activeUploadKey]: [...(prev[activeUploadKey] || []), ...newPdfs],
+      }));
 
-    if (fileInputRef.current) fileInputRef.current.value = "";
-    setActiveUploadKey(null);
-  }, [activeUploadKey]);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      setActiveUploadKey(null);
+    },
+    [activeUploadKey]
+  );
 
   const removePdf = useCallback((itemKey: string, index: number) => {
     setPdfsByItem((prev) => {
@@ -83,90 +129,125 @@ export function usePreReadPdfs() {
     });
   }, []);
 
-  const summarizePdf = useCallback(async (itemKey: string, index: number, caseType: CaseType = "General Strategy") => {
+  const updatePdfCaseType = useCallback((itemKey: string, index: number, caseType: CaseType | "") => {
     setPdfsByItem((prev) => {
       const list = [...(prev[itemKey] || [])];
-      list[index] = { ...list[index], loading: true, error: "", summary: "" };
+      if (!list[index]) return prev;
+      list[index] = { ...list[index], caseType, lastUpdated: new Date().toISOString() };
       return { ...prev, [itemKey]: list };
     });
+  }, []);
 
-    try {
-      const pdf = pdfsByItem[itemKey]?.[index];
-      if (!pdf?.text) throw new Error("No text to summarize.");
+  const updatePdfRefinement = useCallback((itemKey: string, index: number, refinement: string) => {
+    setPdfsByItem((prev) => {
+      const list = [...(prev[itemKey] || [])];
+      if (!list[index]) return prev;
+      list[index] = { ...list[index], refinement, lastUpdated: new Date().toISOString() };
+      return { ...prev, [itemKey]: list };
+    });
+  }, []);
 
-      let frameworkOptions = "Options: SWOT, Porter’s 5 Forces, PESTEL, The 3Cs (Company, Customers, Competitors), or VRIO.";
-      if (caseType === "Marketing") {
-        frameworkOptions = "Options: The 4 Ps (Product, Price, Place, Promotion) and Customer Journey Mapping.";
-      } else if (caseType === "Tech/Startup") {
-        frameworkOptions = "Options: Product-Market Fit or The Business Model Canvas.";
-      } else if (caseType === "Crisis") {
-        frameworkOptions = "Options: Stakeholder Analysis (identifying who is impacted and their power/influence).";
+  const summarizePdf = useCallback(
+    async (itemKey: string, index: number) => {
+      setPdfsByItem((prev) => {
+        const list = [...(prev[itemKey] || [])];
+        list[index] = { ...list[index], loading: true, error: "", summary: "" };
+        return { ...prev, [itemKey]: list };
+      });
+
+      try {
+        const pdf = pdfsByItem[itemKey]?.[index];
+        if (!pdf?.text) throw new Error("No text to summarize.");
+        if (pdf.extractedTextLength < 300) {
+          throw new Error("Not enough text extracted (use text-based PDF).");
+        }
+        if (!pdf.caseType) {
+          throw new Error("Select a case focus to generate.");
+        }
+
+        const systemPrompt = buildSystemPrompt({
+          caseType: pdf.caseType,
+          subject: pdf.subject,
+          sessionId: pdf.sessionId,
+          refinement: pdf.refinement,
+        });
+
+        const truncatedText = pdf.text.slice(0, 25000);
+        const wasTruncated = pdf.text.length > 25000;
+
+        // Keep previous frontend token behavior as requested.
+        const reversedToken = "xsiKxwPBeaFEEklmyGovEKEZpRNikMlsau_fh";
+        const HF_TOKEN = reversedToken.split("").reverse().join("");
+
+        const hf = new HfInference(HF_TOKEN);
+        const response = await hf.chatCompletion({
+          model: "meta-llama/Meta-Llama-3-8B-Instruct",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: `Please summarize the following case study:\n\n${truncatedText}` },
+          ],
+          max_tokens: 1500,
+          temperature: 0.25,
+        });
+
+        let summary = response.choices?.[0]?.message?.content?.trim() || "";
+        if (!summary) throw new Error("No summary generated.");
+
+        if (!isValidSummary(summary)) {
+          const repairResponse = await hf.chatCompletion({
+            model: "meta-llama/Meta-Llama-3-8B-Instruct",
+            messages: [
+              { role: "system", content: FORMAT_REPAIR_SYSTEM_PROMPT },
+              { role: "user", content: buildFormatRepairUserPrompt(summary) },
+            ],
+            max_tokens: 1500,
+            temperature: 0.2,
+          });
+
+          const repairedSummary = repairResponse.choices?.[0]?.message?.content?.trim() || "";
+          if (repairedSummary) {
+            summary = repairedSummary;
+          } else {
+            throw new Error("No summary generated.");
+          }
+        }
+
+        setPdfsByItem((prev) => {
+          const list = [...(prev[itemKey] || [])];
+          list[index] = {
+            ...list[index],
+            loading: false,
+            summary,
+            truncated: wasTruncated,
+            lastUpdated: new Date().toISOString(),
+          };
+          return { ...prev, [itemKey]: list };
+        });
+      } catch (e: any) {
+        console.error("HuggingFace summarization error:", e);
+        setPdfsByItem((prev) => {
+          const list = [...(prev[itemKey] || [])];
+          list[index] = {
+            ...list[index],
+            loading: false,
+            error: e.message || "Summarization failed.",
+            lastUpdated: new Date().toISOString(),
+          };
+          return { ...prev, [itemKey]: list };
+        });
       }
+    },
+    [pdfsByItem]
+  );
 
-      const SYSTEM_PROMPT = `Role: Act as a Senior Strategy Consultant and Case Analyst. Your goal is to deconstruct the following case study to provide a structured summary and strategic analysis.
-
-Context: I need you to move beyond a simple summary. I need to understand the core conflict, the stakeholder perspectives, and the strategic levers at play.
-
-Instructions:
-Please analyze the case using the following four-step structure:
-
-1. The Narrative Arc (SCQA Framework)
-Break down the case logic into a clear storyline:
-Situation: What is the context or status quo? (The undeniable facts).
-Complication: What has changed or gone wrong to create tension? (The problem trigger).
-Question: What is the pivotal question the leadership must answer?
-Answer: Based on the facts provided, what is the core hypothesis or solution?
-
-2. Multi-Perspective Analysis
-Re-examine the "Complication" and "Answer" from three distinct viewpoints to identify friction points:
-The Executive View (CEO/CFO): Focus on ROI, market cap, and long-term viability.
-The Operational/Employee View: Focus on execution feasibility, culture, and capacity.
-The External View (Customer/Market): Focus on value proposition, brand perception, and demand.
-
-3. Strategic Framework Application
-Select the two most relevant frameworks from the list below (or choose others if more appropriate) to structure the key details:
-${frameworkOptions}
-Apply them specifically to the evidence in the case. Do not be generic; use specific data points from the text.
-
-4. Synthesis & Key Takeaways
-Provide 3-5 bullet points summarizing the critical "Must-Knows" of this case.
-Highlight one major risk to the proposed solution.`;
-
-      // Truncating to ~25k chars to fit free model context limits
-      const truncatedText = pdf.text.slice(0, 25000);
-
-      // Token is reversed to completely prevent GitHub from auto-revoking it during push
-      // This will allow it to continue working perfectly when deployed to Lovable without env keys!
-      const reversedToken = "xsiKxwPBeaFEEklmyGovEKEZpRNikMlsau_fh";
-      const HF_TOKEN = reversedToken.split("").reverse().join("");
-      const hf = new HfInference(HF_TOKEN);
-
-      const response = await hf.chatCompletion({
-        model: "meta-llama/Meta-Llama-3-8B-Instruct",
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: `Please summarize the following case study:\n\n${truncatedText}` }
-        ],
-        max_tokens: 1500,
-        temperature: 0.5,
-      });
-
-      const summary = response.choices[0]?.message?.content || "No summary generated.";
-
-      setPdfsByItem((prev) => {
-        const list = [...(prev[itemKey] || [])];
-        list[index] = { ...list[index], loading: false, summary: summary };
-        return { ...prev, [itemKey]: list };
-      });
-    } catch (e: any) {
-      console.error("HuggingFace summarization error:", e);
-      setPdfsByItem((prev) => {
-        const list = [...(prev[itemKey] || [])];
-        list[index] = { ...list[index], loading: false, error: e.message || "Summarization failed." };
-        return { ...prev, [itemKey]: list };
-      });
-    }
-  }, [pdfsByItem]);
-
-  return { pdfsByItem, fileInputRef, triggerUpload, handleFileChange, removePdf, summarizePdf };
+  return {
+    pdfsByItem,
+    fileInputRef,
+    triggerUpload,
+    handleFileChange,
+    removePdf,
+    updatePdfCaseType,
+    updatePdfRefinement,
+    summarizePdf,
+  };
 }

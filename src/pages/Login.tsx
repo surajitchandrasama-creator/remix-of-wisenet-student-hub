@@ -49,7 +49,7 @@ const Login = () => {
       const user = usersData[email];
       if (user && user.password === password) {
         localStorage.setItem("wisenet_session", JSON.stringify({ email, fullName: user.fullName, role: user.role }));
-        navigate("/");
+        navigate("/dashboard");
       } else {
         setAlert({ message: "Invalid email or password.", type: "warning" });
       }

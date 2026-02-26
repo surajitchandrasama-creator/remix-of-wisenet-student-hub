@@ -27,13 +27,13 @@ const DashboardHeader = () => {
         <div className="flex items-center gap-6">
           <span
             className="text-xl font-bold wisenet-gradient-text tracking-tight cursor-pointer"
-            onClick={() => navigate("/")}
+            onClick={() => navigate("/dashboard")}
           >
             WiseNet
           </span>
           <nav className="hidden md:flex items-center gap-1">
             <a
-              onClick={(e) => { e.preventDefault(); navigate("/"); }}
+              onClick={(e) => { e.preventDefault(); navigate("/dashboard"); }}
               href="#"
               className="px-3 py-1.5 text-sm font-medium text-foreground rounded-md hover:bg-secondary transition-colors"
             >
@@ -44,6 +44,13 @@ const DashboardHeader = () => {
               className="px-3 py-1.5 text-sm font-medium text-muted-foreground rounded-md hover:bg-secondary transition-colors"
             >
               My courses
+            </a>
+            <a
+              onClick={(e) => { e.preventDefault(); navigate("/calendar"); }}
+              href="#"
+              className="px-3 py-1.5 text-sm font-medium text-muted-foreground rounded-md hover:bg-secondary transition-colors"
+            >
+              Calendar
             </a>
           </nav>
         </div>

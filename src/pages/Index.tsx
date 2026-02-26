@@ -5,7 +5,6 @@ import TimelineSection from "@/components/TimelineSection";
 import CourseCards from "@/components/CourseCards";
 import PreReadsSidebar from "@/components/PreReadsSidebar";
 import CourseOverview from "@/components/CourseOverview";
-import CalendarSection from "@/components/CalendarSection";
 
 const Index = () => {
   const navigate = useNavigate();
@@ -28,7 +27,6 @@ const Index = () => {
           </h1>
           <TimelineSection />
           <CourseCards />
-          <CalendarSection />
           <CourseOverview />
         </main>
 
