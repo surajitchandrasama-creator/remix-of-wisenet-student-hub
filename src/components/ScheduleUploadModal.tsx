@@ -136,17 +136,17 @@ export function ScheduleUploadModal({ open, onOpenChange }: { open: boolean, onO
                 // Determine all unique weeks involved in this upload
                 const updatedWeeks = new Set(validSessions.map(s => s.weekStart));
 
-                const existingRaw = sessionStorage.getItem("calendar-schedule");
+                const existingRaw = localStorage.getItem("calendar-schedule");
                 let existing: any[] = existingRaw ? JSON.parse(existingRaw) : [];
 
                 // Clear out existing sessions ONLY for the weeks we just uploaded (to cleanly replace them)
                 existing = existing.filter((s: any) => !updatedWeeks.has(s.weekStart));
 
                 const combined = [...existing, ...validSessions];
-                sessionStorage.setItem("calendar-schedule", JSON.stringify(combined));
+                localStorage.setItem("calendar-schedule", JSON.stringify(combined));
 
                 if (date) {
-                    sessionStorage.setItem("calendar-start-date", date.toISOString());
+                    localStorage.setItem("calendar-start-date", date.toISOString());
                 }
             }
 

@@ -29,7 +29,7 @@ const HOUR_HEIGHT = 64; // Each hour block is 64px tall
 export default function Calendar() {
     const [sessions, setSessions] = useState<CalendarSession[]>([]);
     const [currentWeekStart, setCurrentWeekStart] = useState<Date>(() => {
-        const storedStartDate = sessionStorage.getItem("calendar-start-date");
+        const storedStartDate = localStorage.getItem("calendar-start-date");
         if (storedStartDate) return new Date(storedStartDate);
 
         // Find current Monday if no stored date
@@ -40,7 +40,7 @@ export default function Calendar() {
 
     useEffect(() => {
         // Load sessions from storage
-        const storedSessions = sessionStorage.getItem("calendar-schedule");
+        const storedSessions = localStorage.getItem("calendar-schedule");
         if (storedSessions) {
             try {
                 setSessions(JSON.parse(storedSessions));
@@ -66,7 +66,7 @@ export default function Calendar() {
     const handleNextWeek = () => setCurrentWeekStart(prev => addDays(prev, 7));
 
     const handleThisWeek = () => {
-        const storedStartDate = sessionStorage.getItem("calendar-start-date");
+        const storedStartDate = localStorage.getItem("calendar-start-date");
         if (storedStartDate) {
             setCurrentWeekStart(new Date(storedStartDate));
         } else {
