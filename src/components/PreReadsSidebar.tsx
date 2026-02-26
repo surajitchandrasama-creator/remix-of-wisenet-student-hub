@@ -9,39 +9,103 @@ interface PreReadItem {
   task: string;
 }
 
-interface DayGroup {
-  date: string;
-  items: PreReadItem[];
-}
-
-const preReadsData: DayGroup[] = [
-  {
-    date: "9th Feb",
-    items: [
-      { time: "10:40 AM", className: "Managerial Economics", task: "Read Chapter 4" },
-      { time: "12:00 PM", className: "Business Analytics", task: "Review case study on clustering" },
-      { time: "2:30 PM", className: "Marketing Management", task: "Read HBR article on positioning" },
-    ],
-  },
-  {
-    date: "10th Feb",
-    items: [
-      { time: "9:00 AM", className: "Financial Accounting", task: "Read Chapter 7 - Cash Flows" },
-      { time: "11:15 AM", className: "Organizational Behaviour", task: "Watch pre-lecture video" },
-      { time: "3:00 PM", className: "Business Intelligence", task: "Complete SQL worksheet" },
-    ],
-  },
-  {
-    date: "11th Feb",
-    items: [
-      { time: "10:00 AM", className: "Managerial Economics", task: "Read Chapter 5 - Elasticity" },
-      { time: "1:00 PM", className: "Operations Management", task: "Review supply chain diagrams" },
-    ],
-  },
-];
-
 const PreReadsSidebar = () => {
-  const { pdfsByItem, fileInputRef, triggerUpload, handleFileChange, removePdf, summarizePdf } = usePreReadPdfs();
+  const { role } = useAuth();
+  const isTA = role === "ta";
+  const [sessions, setSessions] = useState<SessionWithPreReads[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchUpcomingPreReads();
+  }, []);
+
+  const fetchUpcomingPreReads = async () => {
+    const today = new Date().toISOString().split("T")[0];
+
+    // Fetch today's sessions with course info
+    const { data: sessionData, error } = await supabase
+      .from("timetable_sessions")
+      .select("id, session_number, session_date, start_time, end_time, course_id, courses(name)")
+      .eq("session_date", today)
+      .order("start_time", { ascending: true });
+
+    if (error || !sessionData || sessionData.length === 0) {
+      // If no sessions today, fetch next 7 days
+      const nextWeek = new Date();
+      nextWeek.setDate(nextWeek.getDate() + 7);
+      const { data: upcomingData } = await supabase
+        .from("timetable_sessions")
+        .select("id, session_number, session_date, start_time, end_time, course_id, courses(name)")
+        .gte("session_date", today)
+        .lte("session_date", nextWeek.toISOString().split("T")[0])
+        .order("session_date", { ascending: true })
+        .order("start_time", { ascending: true })
+        .limit(10);
+
+      if (upcomingData && upcomingData.length > 0) {
+        await loadPreReads(upcomingData);
+      } else {
+        setSessions([]);
+      }
+      setLoading(false);
+      return;
+    }
+
+    await loadPreReads(sessionData);
+    setLoading(false);
+  };
+
+  const loadPreReads = async (sessionData: any[]) => {
+    const sessionIds = sessionData.map((s) => s.id);
+    const { data: preReadData } = await supabase
+      .from("pre_reads")
+      .select("id, title, file_name, file_path, summary_status, summary_text, session_id")
+      .in("session_id", sessionIds);
+
+    const preReadsBySession: Record<string, any[]> = {};
+    (preReadData || []).forEach((pr: any) => {
+      if (!preReadsBySession[pr.session_id]) preReadsBySession[pr.session_id] = [];
+      preReadsBySession[pr.session_id].push(pr);
+    });
+
+    const mapped: SessionWithPreReads[] = sessionData
+      .filter((s) => {
+        const prs = preReadsBySession[s.id] || [];
+        // Students only see sessions that have pre-reads
+        return isTA || prs.length > 0;
+      })
+      .map((s) => ({
+        id: s.id,
+        session_number: s.session_number,
+        session_date: s.session_date,
+        start_time: s.start_time,
+        end_time: s.end_time,
+        course_name: (s.courses as any)?.name || "Unknown",
+        course_id: s.course_id,
+        pre_reads: preReadsBySession[s.id] || [],
+      }));
+
+    setSessions(mapped);
+  };
+
+  const handleOpenPdf = async (filePath: string) => {
+    const { data } = await supabase.storage
+      .from("pre-reads")
+      .createSignedUrl(filePath, 3600);
+    if (data?.signedUrl) {
+      window.open(data.signedUrl, "_blank");
+    } else {
+      toast.error("Could not open file");
+    }
+  };
+
+  if (loading) {
+    return (
+      <aside className="sticky top-14 h-[calc(100vh-3.5rem)] w-full border-l bg-card shadow-elevated flex items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      </aside>
+    );
+  }
 
   const userSession = JSON.parse(localStorage.getItem("wisenet_session") || "{}");
   const isTA = userSession.role === "TA";
@@ -99,17 +163,9 @@ const PreReadsSidebar = () => {
                 );
               })}
             </div>
-          </div>
-        ))}
+          ))
+        )}
       </div>
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".pdf"
-        multiple
-        onChange={handleFileChange}
-        className="hidden"
-      />
     </aside>
   );
 };
@@ -147,9 +203,25 @@ const PdfCard = ({ pdf, onRemove, onSummarize }: PdfCardProps) => {
         )}
       </div>
 
-      {pdf.error && (
-        <p className="mt-1.5 text-destructive">{pdf.error}</p>
-      )}
+  const handleGenerateSummary = async () => {
+    setGenerating(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("summarize-pre-read", {
+        body: { pre_read_id: preRead.id, prompt: prompt.trim() || undefined },
+      });
+      if (error) throw error;
+      if (data?.error) {
+        toast.error(data.error);
+      } else {
+        toast.success("Summary generated!");
+        onRefresh();
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to generate summary");
+    } finally {
+      setGenerating(false);
+    }
+  };
 
       {!pdf.summary && !pdf.loading && pdf.text && (
         <div className="mt-2 flex flex-col gap-2">
@@ -172,8 +244,8 @@ const PdfCard = ({ pdf, onRemove, onSummarize }: PdfCardProps) => {
         </div>
       )}
 
-      {pdf.loading && (
-        <div className="mt-2 flex items-center gap-1.5 text-muted-foreground">
+      {generating && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <Loader2 className="h-3 w-3 animate-spin" /> Summarizing…
         </div>
       )}

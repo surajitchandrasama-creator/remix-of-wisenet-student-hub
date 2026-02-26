@@ -1,6 +1,7 @@
-import { Bell, MessageCircle, ToggleLeft, ToggleRight, ChevronDown } from "lucide-react";
+import { Bell, MessageCircle, ToggleLeft, ToggleRight, ChevronDown, LogOut } from "lucide-react";
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -9,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ScheduleUploadModal } from "./ScheduleUploadModal";
+import { cn } from "@/lib/utils";
 
 const DashboardHeader = () => {
   const [editMode, setEditMode] = useState(false);
@@ -17,6 +19,28 @@ const DashboardHeader = () => {
   const userSession = JSON.parse(localStorage.getItem("wisenet_session") || "{}");
   const isTA = userSession.role === "TA";
   const navigate = useNavigate();
+  const location = useLocation();
+  const { user, role, signOut } = useAuth();
+
+  const initials = user?.user_metadata?.full_name
+    ? user.user_metadata.full_name
+        .split(" ")
+        .map((n: string) => n[0])
+        .join("")
+        .toUpperCase()
+        .slice(0, 2)
+    : user?.email?.slice(0, 2).toUpperCase() || "U";
+
+  const navItems = [
+    { label: "Dashboard", path: "/" },
+    { label: "My courses", path: "#" },
+    { label: "Timetable", path: "/timetable" },
+  ];
+
+  const handleLogout = async () => {
+    await signOut();
+    navigate("/login");
+  };
 
   return (
     <>
@@ -29,23 +53,34 @@ const DashboardHeader = () => {
             WiseNet
           </span>
           <nav className="hidden md:flex items-center gap-1">
-            <a
-              onClick={(e) => { e.preventDefault(); navigate("/"); }}
-              href="#"
-              className="px-3 py-1.5 text-sm font-medium text-foreground rounded-md hover:bg-secondary transition-colors"
-            >
-              Dashboard
-            </a>
-            <a
-              href="#"
-              className="px-3 py-1.5 text-sm font-medium text-muted-foreground rounded-md hover:bg-secondary transition-colors"
-            >
-              My courses
-            </a>
+            {navItems.map((item) => (
+              <a
+                key={item.label}
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (item.path !== "#") navigate(item.path);
+                }}
+                href="#"
+                className={cn(
+                  "px-3 py-1.5 text-sm font-medium rounded-md hover:bg-secondary transition-colors",
+                  location.pathname === item.path
+                    ? "text-foreground"
+                    : "text-muted-foreground"
+                )}
+              >
+                {item.label}
+              </a>
+            ))}
           </nav>
         </div>
 
         <div className="flex items-center gap-4">
+          {role && (
+            <span className="hidden sm:inline-flex items-center rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
+              {role.toUpperCase()}
+            </span>
+          )}
+
           <button className="relative p-2 rounded-full hover:bg-secondary transition-colors">
             <Bell className="h-5 w-5 text-muted-foreground" />
           </button>
@@ -57,7 +92,7 @@ const DashboardHeader = () => {
             <DropdownMenuTrigger asChild>
               <button className="flex items-center gap-1.5 hover:bg-secondary/50 p-1 pr-2 rounded-full transition-colors focus:outline-none">
                 <div className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary text-foreground text-xs font-semibold border border-border/50">
-                  SC
+                  {initials}
                 </div>
                 <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
               </button>
@@ -103,6 +138,17 @@ const DashboardHeader = () => {
                 </>
               )}
               <DropdownMenuSeparator className="my-1" />
+              {role === "ta" && (
+                <DropdownMenuItem
+                  className="cursor-pointer py-2 font-medium"
+                  onSelect={(e) => {
+                    e.preventDefault();
+                    setIsScheduleModalOpen(true);
+                  }}
+                >
+                  Edit Schedule
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem
                 className="cursor-pointer py-2"
                 onSelect={(e) => {

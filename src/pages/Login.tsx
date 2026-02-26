@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { User, X, Eye, EyeOff } from "lucide-react";
+import { X, Eye, EyeOff, User } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 import campusBg from "@/assets/campus-bg.jpg";
+import { toast } from "sonner";
 
 type AuthMode = "login" | "signup";
 type UserRole = "student" | "TA";
@@ -14,21 +16,18 @@ interface AlertBanner {
 const Login = () => {
   const navigate = useNavigate();
   const [mode, setMode] = useState<AuthMode>("login");
-  const [alert, setAlert] = useState<AlertBanner | null>({
-    message: "Your session has timed out. Please log in again.",
-    type: "warning",
-  });
+  const [alert, setAlert] = useState<AlertBanner | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  // Form state
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [role, setRole] = useState<UserRole>("student");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const usersData = JSON.parse(localStorage.getItem("wisenet_users") || "{}");
 
@@ -57,6 +56,8 @@ const Login = () => {
         setAlert({ message: "Invalid email or password.", type: "warning" });
       }
     }
+
+    setLoading(false);
   };
 
   return (
@@ -199,9 +200,10 @@ const Login = () => {
 
             <button
               type="submit"
-              className="rounded-lg bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
+              disabled={loading}
+              className="rounded-lg bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
             >
-              {mode === "login" ? "Log in" : "Sign Up"}
+              {loading ? "Please wait…" : mode === "login" ? "Log in" : "Sign Up"}
             </button>
 
             {mode === "login" && (
