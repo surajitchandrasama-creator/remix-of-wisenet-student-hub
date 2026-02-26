@@ -16,6 +16,9 @@ const DashboardHeader = () => {
 
   const userSession = JSON.parse(localStorage.getItem("wisenet_session") || "{}");
   const isTA = userSession.role === "TA";
+  const initials = userSession.fullName
+    ? userSession.fullName.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2)
+    : "?";
   const navigate = useNavigate();
 
   return (
@@ -57,7 +60,7 @@ const DashboardHeader = () => {
             <DropdownMenuTrigger asChild>
               <button className="flex items-center gap-1.5 hover:bg-secondary/50 p-1 pr-2 rounded-full transition-colors focus:outline-none">
                 <div className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary text-foreground text-xs font-semibold border border-border/50">
-                  SC
+                  {initials}
                 </div>
                 <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
               </button>

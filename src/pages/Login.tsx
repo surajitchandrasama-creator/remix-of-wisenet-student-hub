@@ -14,10 +14,7 @@ interface AlertBanner {
 const Login = () => {
   const navigate = useNavigate();
   const [mode, setMode] = useState<AuthMode>("login");
-  const [alert, setAlert] = useState<AlertBanner | null>({
-    message: "Your session has timed out. Please log in again.",
-    type: "warning",
-  });
+  const [alert, setAlert] = useState<AlertBanner | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
 
