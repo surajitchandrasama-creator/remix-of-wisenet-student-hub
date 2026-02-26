@@ -1,8 +1,9 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
+import { HfInference } from "@huggingface/inference";
 import { supabase } from "@/integrations/supabase/client";
 
 interface UploadedPdf {
-  file: File;
+  fileName: string;
   text: string;
   summary: string;
   loading: boolean;
@@ -27,7 +28,19 @@ export type CaseType = "General Strategy" | "Marketing" | "Tech/Startup" | "Cris
 
 export function usePreReadPdfs() {
   // Map of itemKey -> array of uploaded PDFs
-  const [pdfsByItem, setPdfsByItem] = useState<Record<string, UploadedPdf[]>>({});
+  const [pdfsByItem, setPdfsByItem] = useState<Record<string, UploadedPdf[]>>(() => {
+    try {
+      const stored = localStorage.getItem("wisenet_pdfs");
+      return stored ? JSON.parse(stored) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  // Save to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem("wisenet_pdfs", JSON.stringify(pdfsByItem));
+  }, [pdfsByItem]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeUploadKey, setActiveUploadKey] = useState<string | null>(null);
 
@@ -50,7 +63,7 @@ export function usePreReadPdfs() {
       } catch {
         error = "Failed to read this PDF.";
       }
-      newPdfs.push({ file, text, summary: "", loading: false, error });
+      newPdfs.push({ fileName: file.name, text, summary: "", loading: false, error });
     }
 
     setPdfsByItem((prev) => ({
@@ -119,38 +132,26 @@ Apply them specifically to the evidence in the case. Do not be generic; use spec
 Provide 3-5 bullet points summarizing the critical "Must-Knows" of this case.
 Highlight one major risk to the proposed solution.`;
 
-      // Slice the text so we don't overflow context windows, leaving room for the prompt
-      const truncatedText = pdf.text.slice(0, 15000);
+      // Truncating to ~25k chars to fit free model context limits
+      const truncatedText = pdf.text.slice(0, 25000);
 
-      const hfToken = import.meta.env.VITE_HUGGING_FACE_TOKEN;
-      if (!hfToken) {
-        throw new Error("Missing VITE_HUGGING_FACE_TOKEN in .env file. Please restart your dev server if just added.");
+      const HF_TOKEN = import.meta.env.VITE_HUGGING_FACE_TOKEN || "";
+      if (!HF_TOKEN) {
+        throw new Error("Missing VITE_HUGGING_FACE_TOKEN in .env file. Please add your token back.");
       }
+      const hf = new HfInference(HF_TOKEN);
 
-      const API_URL = "https://api-inference.huggingface.co/models/meta-llama/Meta-Llama-3-8B-Instruct/v1/chat/completions";
-      const apiResponse = await fetch(API_URL, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${hfToken}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          messages: [
-            { role: "system", content: SYSTEM_PROMPT },
-            { role: "user", content: `Please summarize the following case study:\n\n${truncatedText}` }
-          ],
-          max_tokens: 1500,
-          temperature: 0.5,
-        })
+      const response = await hf.chatCompletion({
+        model: "meta-llama/Meta-Llama-3-8B-Instruct",
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: `Please summarize the following case study:\n\n${truncatedText}` }
+        ],
+        max_tokens: 1500,
+        temperature: 0.5,
       });
 
-      if (!apiResponse.ok) {
-        const errText = await apiResponse.text();
-        throw new Error(`API Error ${apiResponse.status}: ${errText}`);
-      }
-
-      const data = await apiResponse.json();
-      const summary = data.choices?.[0]?.message?.content || "No summary generated.";
+      const summary = response.choices[0]?.message?.content || "No summary generated.";
 
       setPdfsByItem((prev) => {
         const list = [...(prev[itemKey] || [])];

@@ -4,6 +4,7 @@ import { User, X, Eye, EyeOff } from "lucide-react";
 import campusBg from "@/assets/campus-bg.jpg";
 
 type AuthMode = "login" | "signup";
+type UserRole = "student" | "TA";
 
 interface AlertBanner {
   message: string;
@@ -25,14 +26,36 @@ const Login = () => {
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [role, setRole] = useState<UserRole>("student");
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const usersData = JSON.parse(localStorage.getItem("wisenet_users") || "{}");
+
     if (mode === "signup") {
-      setAlert({ message: "Account created successfully!", type: "success" });
+      if (password !== confirmPassword) {
+        setAlert({ message: "Passwords do not match.", type: "warning" });
+        return;
+      }
+      if (usersData[email]) {
+        setAlert({ message: "User already exists. Please log in.", type: "warning" });
+        return;
+      }
+
+      usersData[email] = { password, fullName, role };
+      localStorage.setItem("wisenet_users", JSON.stringify(usersData));
+
+      setAlert({ message: "Account created successfully! Please log in.", type: "success" });
       setMode("login");
+      setPassword(""); // Clear password for login
     } else {
-      navigate("/");
+      const user = usersData[email];
+      if (user && user.password === password) {
+        localStorage.setItem("wisenet_session", JSON.stringify({ email, fullName: user.fullName, role: user.role }));
+        navigate("/");
+      } else {
+        setAlert({ message: "Invalid email or password.", type: "warning" });
+      }
     }
   };
 
@@ -54,11 +77,10 @@ const Login = () => {
           {/* Alert Banner */}
           {alert && (
             <div
-              className={`flex items-center justify-between rounded-full px-5 py-2.5 text-sm ${
-                alert.type === "warning"
+              className={`flex items-center justify-between rounded-full px-5 py-2.5 text-sm ${alert.type === "warning"
                   ? "bg-orange-50 text-orange-700 border border-orange-200"
                   : "bg-green-50 text-green-700 border border-green-200"
-              }`}
+                }`}
             >
               <span>{alert.message}</span>
               <button onClick={() => setAlert(null)} className="ml-3 hover:opacity-70">
@@ -71,21 +93,19 @@ const Login = () => {
           <div className="flex border-b border-border">
             <button
               onClick={() => setMode("login")}
-              className={`pb-2.5 px-4 text-sm font-medium transition-colors ${
-                mode === "login"
+              className={`pb-2.5 px-4 text-sm font-medium transition-colors ${mode === "login"
                   ? "text-primary border-b-2 border-primary"
                   : "text-muted-foreground hover:text-foreground"
-              }`}
+                }`}
             >
               Log In
             </button>
             <button
               onClick={() => setMode("signup")}
-              className={`pb-2.5 px-4 text-sm font-medium transition-colors ${
-                mode === "signup"
+              className={`pb-2.5 px-4 text-sm font-medium transition-colors ${mode === "signup"
                   ? "text-primary border-b-2 border-primary"
                   : "text-muted-foreground hover:text-foreground"
-              }`}
+                }`}
             >
               Sign Up
             </button>
@@ -94,14 +114,40 @@ const Login = () => {
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
             {mode === "signup" && (
-              <input
-                type="text"
-                placeholder="Full Name"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                required
-                className="w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-              />
+              <>
+                <div className="flex gap-4 mb-2">
+                  <label className="flex items-center gap-2 text-sm font-medium text-foreground cursor-pointer">
+                    <input
+                      type="radio"
+                      name="role"
+                      value="student"
+                      checked={role === "student"}
+                      onChange={() => setRole("student")}
+                      className="accent-primary"
+                    />
+                    Student
+                  </label>
+                  <label className="flex items-center gap-2 text-sm font-medium text-foreground cursor-pointer">
+                    <input
+                      type="radio"
+                      name="role"
+                      value="TA"
+                      checked={role === "TA"}
+                      onChange={() => setRole("TA")}
+                      className="accent-primary"
+                    />
+                    TA (Teaching Assistant)
+                  </label>
+                </div>
+                <input
+                  type="text"
+                  placeholder="Full Name"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  required
+                  className="w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                />
+              </>
             )}
 
             <input
