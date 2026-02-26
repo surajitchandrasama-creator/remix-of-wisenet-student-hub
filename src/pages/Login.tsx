@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { User, X, Eye, EyeOff } from "lucide-react";
+import { X, Eye, EyeOff, User } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 import campusBg from "@/assets/campus-bg.jpg";
+import { toast } from "sonner";
 
 type AuthMode = "login" | "signup";
 
@@ -13,27 +15,59 @@ interface AlertBanner {
 const Login = () => {
   const navigate = useNavigate();
   const [mode, setMode] = useState<AuthMode>("login");
-  const [alert, setAlert] = useState<AlertBanner | null>({
-    message: "Your session has timed out. Please log in again.",
-    type: "warning",
-  });
+  const [alert, setAlert] = useState<AlertBanner | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  // Form state
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setLoading(true);
+
     if (mode === "signup") {
-      setAlert({ message: "Account created successfully!", type: "success" });
-      setMode("login");
+      if (password !== confirmPassword) {
+        setAlert({ message: "Passwords do not match.", type: "warning" });
+        setLoading(false);
+        return;
+      }
+
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: { full_name: fullName },
+          emailRedirectTo: window.location.origin,
+        },
+      });
+
+      if (error) {
+        setAlert({ message: error.message, type: "warning" });
+      } else {
+        setAlert({
+          message: "Check your email to confirm your account!",
+          type: "success",
+        });
+        setMode("login");
+      }
     } else {
-      navigate("/");
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) {
+        setAlert({ message: error.message, type: "warning" });
+      } else {
+        navigate("/");
+      }
     }
+
+    setLoading(false);
   };
 
   return (
@@ -56,8 +90,8 @@ const Login = () => {
             <div
               className={`flex items-center justify-between rounded-full px-5 py-2.5 text-sm ${
                 alert.type === "warning"
-                  ? "bg-orange-50 text-orange-700 border border-orange-200"
-                  : "bg-green-50 text-green-700 border border-green-200"
+                  ? "bg-destructive/10 text-destructive border border-destructive/20"
+                  : "bg-teal/10 text-teal border border-teal/20"
               }`}
             >
               <span>{alert.message}</span>
@@ -153,9 +187,10 @@ const Login = () => {
 
             <button
               type="submit"
-              className="rounded-lg bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
+              disabled={loading}
+              className="rounded-lg bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
             >
-              {mode === "login" ? "Log in" : "Sign Up"}
+              {loading ? "Please wait…" : mode === "login" ? "Log in" : "Sign Up"}
             </button>
 
             {mode === "login" && (

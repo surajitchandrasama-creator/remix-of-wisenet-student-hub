@@ -14,13 +14,161 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      courses: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          program: string
+          term: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          program?: string
+          term?: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          program?: string
+          term?: number
+        }
+        Relationships: []
+      }
+      pre_reads: {
+        Row: {
+          course_id: string
+          created_at: string
+          description: string | null
+          file_name: string
+          file_path: string
+          file_size: number
+          id: string
+          session_id: string
+          source_text: string | null
+          source_text_status: string
+          summary_prompt: string | null
+          summary_status: string
+          summary_text: string | null
+          title: string
+        }
+        Insert: {
+          course_id: string
+          created_at?: string
+          description?: string | null
+          file_name: string
+          file_path: string
+          file_size?: number
+          id?: string
+          session_id: string
+          source_text?: string | null
+          source_text_status?: string
+          summary_prompt?: string | null
+          summary_status?: string
+          summary_text?: string | null
+          title: string
+        }
+        Update: {
+          course_id?: string
+          created_at?: string
+          description?: string | null
+          file_name?: string
+          file_path?: string
+          file_size?: number
+          id?: string
+          session_id?: string
+          source_text?: string | null
+          source_text_status?: string
+          summary_prompt?: string | null
+          summary_status?: string
+          summary_text?: string | null
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pre_reads_course_id_fkey"
+            columns: ["course_id"]
+            isOneToOne: false
+            referencedRelation: "courses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pre_reads_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "timetable_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          id: string
+          role: string
+        }
+        Insert: {
+          created_at?: string
+          id: string
+          role?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: string
+        }
+        Relationships: []
+      }
+      timetable_sessions: {
+        Row: {
+          course_id: string
+          created_at: string
+          end_time: string | null
+          id: string
+          location: string | null
+          session_date: string | null
+          session_number: number
+          start_time: string | null
+        }
+        Insert: {
+          course_id: string
+          created_at?: string
+          end_time?: string | null
+          id?: string
+          location?: string | null
+          session_date?: string | null
+          session_number: number
+          start_time?: string | null
+        }
+        Update: {
+          course_id?: string
+          created_at?: string
+          end_time?: string | null
+          id?: string
+          location?: string | null
+          session_date?: string | null
+          session_number?: number
+          start_time?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "timetable_sessions_course_id_fkey"
+            columns: ["course_id"]
+            isOneToOne: false
+            referencedRelation: "courses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      is_ta: { Args: { _user_id: string }; Returns: boolean }
     }
     Enums: {
       [_ in never]: never

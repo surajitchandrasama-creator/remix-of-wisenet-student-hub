@@ -1,159 +1,276 @@
-import { Sparkles, X, Upload, FileText, ChevronDown, Loader2 } from "lucide-react";
-import { useState } from "react";
-import ReactMarkdown from 'react-markdown';
-import { usePreReadPdfs } from "@/hooks/usePreReadPdfs";
+import { useState, useEffect } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
+import { Sparkles, ChevronDown, Loader2, FileText, ExternalLink } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Textarea } from "@/components/ui/textarea";
+import { toast } from "sonner";
 
-interface PreReadItem {
-  time: string;
-  className: string;
-  task: string;
+interface SessionWithPreReads {
+  id: string;
+  session_number: number;
+  session_date: string;
+  start_time: string | null;
+  end_time: string | null;
+  course_name: string;
+  course_id: string;
+  pre_reads: {
+    id: string;
+    title: string;
+    file_name: string;
+    file_path: string;
+    summary_status: string;
+    summary_text: string | null;
+  }[];
 }
-
-interface DayGroup {
-  date: string;
-  items: PreReadItem[];
-}
-
-const preReadsData: DayGroup[] = [
-  {
-    date: "9th Feb",
-    items: [
-      { time: "10:40 AM", className: "Managerial Economics", task: "Read Chapter 4" },
-      { time: "12:00 PM", className: "Business Analytics", task: "Review case study on clustering" },
-      { time: "2:30 PM", className: "Marketing Management", task: "Read HBR article on positioning" },
-    ],
-  },
-  {
-    date: "10th Feb",
-    items: [
-      { time: "9:00 AM", className: "Financial Accounting", task: "Read Chapter 7 - Cash Flows" },
-      { time: "11:15 AM", className: "Organizational Behaviour", task: "Watch pre-lecture video" },
-      { time: "3:00 PM", className: "Business Intelligence", task: "Complete SQL worksheet" },
-    ],
-  },
-  {
-    date: "11th Feb",
-    items: [
-      { time: "10:00 AM", className: "Managerial Economics", task: "Read Chapter 5 - Elasticity" },
-      { time: "1:00 PM", className: "Operations Management", task: "Review supply chain diagrams" },
-    ],
-  },
-];
 
 const PreReadsSidebar = () => {
-  const { pdfsByItem, fileInputRef, triggerUpload, handleFileChange, removePdf, summarizePdf } = usePreReadPdfs();
+  const { role } = useAuth();
+  const isTA = role === "ta";
+  const [sessions, setSessions] = useState<SessionWithPreReads[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchUpcomingPreReads();
+  }, []);
+
+  const fetchUpcomingPreReads = async () => {
+    const today = new Date().toISOString().split("T")[0];
+
+    // Fetch today's sessions with course info
+    const { data: sessionData, error } = await supabase
+      .from("timetable_sessions")
+      .select("id, session_number, session_date, start_time, end_time, course_id, courses(name)")
+      .eq("session_date", today)
+      .order("start_time", { ascending: true });
+
+    if (error || !sessionData || sessionData.length === 0) {
+      // If no sessions today, fetch next 7 days
+      const nextWeek = new Date();
+      nextWeek.setDate(nextWeek.getDate() + 7);
+      const { data: upcomingData } = await supabase
+        .from("timetable_sessions")
+        .select("id, session_number, session_date, start_time, end_time, course_id, courses(name)")
+        .gte("session_date", today)
+        .lte("session_date", nextWeek.toISOString().split("T")[0])
+        .order("session_date", { ascending: true })
+        .order("start_time", { ascending: true })
+        .limit(10);
+
+      if (upcomingData && upcomingData.length > 0) {
+        await loadPreReads(upcomingData);
+      } else {
+        setSessions([]);
+      }
+      setLoading(false);
+      return;
+    }
+
+    await loadPreReads(sessionData);
+    setLoading(false);
+  };
+
+  const loadPreReads = async (sessionData: any[]) => {
+    const sessionIds = sessionData.map((s) => s.id);
+    const { data: preReadData } = await supabase
+      .from("pre_reads")
+      .select("id, title, file_name, file_path, summary_status, summary_text, session_id")
+      .in("session_id", sessionIds);
+
+    const preReadsBySession: Record<string, any[]> = {};
+    (preReadData || []).forEach((pr: any) => {
+      if (!preReadsBySession[pr.session_id]) preReadsBySession[pr.session_id] = [];
+      preReadsBySession[pr.session_id].push(pr);
+    });
+
+    const mapped: SessionWithPreReads[] = sessionData
+      .filter((s) => {
+        const prs = preReadsBySession[s.id] || [];
+        // Students only see sessions that have pre-reads
+        return isTA || prs.length > 0;
+      })
+      .map((s) => ({
+        id: s.id,
+        session_number: s.session_number,
+        session_date: s.session_date,
+        start_time: s.start_time,
+        end_time: s.end_time,
+        course_name: (s.courses as any)?.name || "Unknown",
+        course_id: s.course_id,
+        pre_reads: preReadsBySession[s.id] || [],
+      }));
+
+    setSessions(mapped);
+  };
+
+  const handleOpenPdf = async (filePath: string) => {
+    const { data } = await supabase.storage
+      .from("pre-reads")
+      .createSignedUrl(filePath, 3600);
+    if (data?.signedUrl) {
+      window.open(data.signedUrl, "_blank");
+    } else {
+      toast.error("Could not open file");
+    }
+  };
+
+  if (loading) {
+    return (
+      <aside className="sticky top-14 h-[calc(100vh-3.5rem)] w-full border-l bg-card shadow-elevated flex items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      </aside>
+    );
+  }
 
   return (
     <aside className="sticky top-14 h-[calc(100vh-3.5rem)] w-full overflow-y-auto border-l bg-card shadow-elevated">
       <div className="border-b px-5 py-3">
         <h2 className="text-base font-semibold text-foreground">Upcoming Pre-reads</h2>
       </div>
-      <div className="p-4 space-y-5">
-        {preReadsData.map((group) => (
-          <div key={group.date}>
-            <div className="sticky top-0 z-10 mb-2 bg-card pb-1">
-              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                {group.date}
-              </span>
-            </div>
-            <div className="space-y-2">
-              {group.items.map((item) => {
-                const itemKey = `${group.date}-${item.time}-${item.task}`;
-                const pdfs = pdfsByItem[itemKey] || [];
-                return (
-                  <div key={itemKey}>
-                    <div className="group flex items-start gap-3 rounded-md p-2 transition-colors hover:bg-secondary">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs text-muted-foreground">{item.time}</p>
-                        <p className="text-sm font-semibold text-foreground leading-snug">{item.className}</p>
-                        <p className="text-sm text-muted-foreground leading-snug">{item.task}</p>
-                      </div>
-                      <button
-                        onClick={() => triggerUpload(itemKey)}
-                        className="mt-1 flex-shrink-0 rounded-full p-1.5 text-muted-foreground hover:bg-primary/10 hover:text-primary transition-colors"
-                        title="Upload PDFs"
-                      >
-                        <Upload className="h-4 w-4" />
-                      </button>
-                    </div>
+      <div className="p-4 space-y-4">
+        {sessions.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-8">
+            No upcoming pre-reads found.
+          </p>
+        ) : (
+          sessions.map((session) => (
+            <div key={session.id} className="space-y-2">
+              <div className="bg-secondary/50 rounded-md px-3 py-2">
+                <p className="text-xs font-semibold text-foreground">{session.course_name}</p>
+                <p className="text-xs text-muted-foreground">
+                  Session {session.session_number} · {session.session_date}
+                  {session.start_time && ` · ${session.start_time}`}
+                </p>
+              </div>
 
-                    {/* Uploaded PDF cards */}
-                    {pdfs.length > 0 && (
-                      <div className="ml-2 mr-2 mt-1 space-y-1.5">
-                        {pdfs.map((pdf, idx) => (
-                          <PdfCard
-                            key={`${pdf.file.name}-${idx}`}
-                            pdf={pdf}
-                            onRemove={() => removePdf(itemKey, idx)}
-                            onSummarize={() => summarizePdf(itemKey, idx)}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+              {session.pre_reads.length > 0 ? (
+                session.pre_reads.map((pr) => (
+                  <PreReadCard
+                    key={pr.id}
+                    preRead={pr}
+                    isTA={isTA}
+                    onOpenPdf={() => handleOpenPdf(pr.file_path)}
+                    onRefresh={fetchUpcomingPreReads}
+                  />
+                ))
+              ) : isTA ? (
+                <p className="text-xs text-muted-foreground italic px-2">
+                  No pre-reads uploaded for this session.
+                </p>
+              ) : null}
             </div>
-          </div>
-        ))}
+          ))
+        )}
       </div>
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".pdf"
-        multiple
-        onChange={handleFileChange}
-        className="hidden"
-      />
     </aside>
   );
 };
 
-interface PdfCardProps {
-  pdf: { file: File; summary: string; loading: boolean; error: string; text: string };
-  onRemove: () => void;
-  onSummarize: () => void;
+interface PreReadCardProps {
+  preRead: {
+    id: string;
+    title: string;
+    file_name: string;
+    file_path: string;
+    summary_status: string;
+    summary_text: string | null;
+  };
+  isTA: boolean;
+  onOpenPdf: () => void;
+  onRefresh: () => void;
 }
 
-const PdfCard = ({ pdf, onRemove, onSummarize }: PdfCardProps) => {
+const PreReadCard = ({ preRead, isTA, onOpenPdf, onRefresh }: PreReadCardProps) => {
+  const [prompt, setPrompt] = useState("");
+  const [generating, setGenerating] = useState(false);
+
+  const handleGenerateSummary = async () => {
+    setGenerating(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("summarize-pre-read", {
+        body: { pre_read_id: preRead.id, prompt: prompt.trim() || undefined },
+      });
+      if (error) throw error;
+      if (data?.error) {
+        toast.error(data.error);
+      } else {
+        toast.success("Summary generated!");
+        onRefresh();
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to generate summary");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   return (
-    <div className="rounded-md border bg-secondary/50 p-2.5 text-xs">
-      <div className="flex items-center gap-1.5">
-        <FileText className="h-3.5 w-3.5 flex-shrink-0 text-primary" />
-        <span className="truncate flex-1 font-medium text-foreground">{pdf.file.name}</span>
-        <button onClick={onRemove} className="flex-shrink-0 text-muted-foreground hover:text-destructive">
-          <X className="h-3.5 w-3.5" />
+    <div className="rounded-md border bg-card p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <FileText className="h-4 w-4 text-primary flex-shrink-0" />
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-foreground truncate">{preRead.title}</p>
+          <p className="text-xs text-muted-foreground truncate">{preRead.file_name}</p>
+        </div>
+        <button
+          onClick={onOpenPdf}
+          className="flex-shrink-0 text-xs text-primary hover:underline flex items-center gap-1"
+        >
+          <ExternalLink className="h-3 w-3" /> Open
         </button>
       </div>
 
-      {pdf.error && (
-        <p className="mt-1.5 text-destructive">{pdf.error}</p>
+      {/* TA: Generate Summary */}
+      {isTA && preRead.summary_status !== "ready" && !generating && (
+        <div className="space-y-2">
+          <Textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            placeholder="Custom prompt (optional)"
+            className="text-xs min-h-[60px]"
+          />
+          <button
+            onClick={handleGenerateSummary}
+            className="flex items-center gap-1.5 rounded bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/20 transition-colors"
+          >
+            <Sparkles className="h-3 w-3" /> Generate Summary
+          </button>
+        </div>
       )}
 
-      {!pdf.summary && !pdf.loading && pdf.text && (
-        <button
-          onClick={onSummarize}
-          className="mt-2 flex items-center gap-1 rounded bg-primary/10 px-2 py-1 font-medium text-primary hover:bg-primary/20 transition-colors"
-        >
-          <Sparkles className="h-3 w-3" /> Summarize
-        </button>
-      )}
-
-      {pdf.loading && (
-        <div className="mt-2 flex items-center gap-1.5 text-muted-foreground">
+      {generating && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <Loader2 className="h-3 w-3 animate-spin" /> Summarizing…
         </div>
       )}
 
-      {pdf.summary && (
-        <Collapsible defaultOpen className="mt-2">
-          <CollapsibleTrigger className="flex items-center gap-1 font-semibold text-primary hover:underline">
-            <ChevronDown className="h-3 w-3" /> Summary
+      {preRead.summary_status === "generating" && !generating && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 className="h-3 w-3 animate-spin" /> Summary in progress…
+        </div>
+      )}
+
+      {preRead.summary_status === "error" && (
+        <p className="text-xs text-destructive">
+          Summary failed.{" "}
+          {isTA && (
+            <button onClick={handleGenerateSummary} className="underline">
+              Retry
+            </button>
+          )}
+        </p>
+      )}
+
+      {/* Summary display */}
+      {preRead.summary_status === "ready" && preRead.summary_text && (
+        <Collapsible defaultOpen>
+          <CollapsibleTrigger className="flex items-center gap-1 text-xs font-semibold text-primary hover:underline">
+            <ChevronDown className="h-3 w-3" /> AI Summary
           </CollapsibleTrigger>
           <CollapsibleContent>
-            <div className="mt-2 prose prose-sm prose-invert max-w-none text-foreground leading-relaxed">
-              <ReactMarkdown>{pdf.summary}</ReactMarkdown>
+            <div className="mt-2 prose prose-sm max-w-none text-xs text-foreground leading-relaxed">
+              <ReactMarkdown>{preRead.summary_text}</ReactMarkdown>
             </div>
           </CollapsibleContent>
         </Collapsible>
