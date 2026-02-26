@@ -14,10 +14,7 @@ interface AlertBanner {
 const Login = () => {
   const navigate = useNavigate();
   const [mode, setMode] = useState<AuthMode>("login");
-  const [alert, setAlert] = useState<AlertBanner | null>({
-    message: "Your session has timed out. Please log in again.",
-    type: "warning",
-  });
+  const [alert, setAlert] = useState<AlertBanner | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
 
@@ -52,7 +49,7 @@ const Login = () => {
       const user = usersData[email];
       if (user && user.password === password) {
         localStorage.setItem("wisenet_session", JSON.stringify({ email, fullName: user.fullName, role: user.role }));
-        navigate("/");
+        navigate("/dashboard");
       } else {
         setAlert({ message: "Invalid email or password.", type: "warning" });
       }

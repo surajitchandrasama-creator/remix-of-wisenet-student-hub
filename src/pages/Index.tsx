@@ -1,3 +1,5 @@
+import { useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import DashboardHeader from "@/components/DashboardHeader";
 import TimelineSection from "@/components/TimelineSection";
 import CourseCards from "@/components/CourseCards";
@@ -5,6 +7,15 @@ import PreReadsSidebar from "@/components/PreReadsSidebar";
 import CourseOverview from "@/components/CourseOverview";
 
 const Index = () => {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const session = localStorage.getItem("wisenet_session");
+    if (!session) {
+      navigate("/login");
+    }
+  }, [navigate]);
+
   return (
     <div className="min-h-screen bg-background">
       <DashboardHeader />

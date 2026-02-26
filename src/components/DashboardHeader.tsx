@@ -16,6 +16,9 @@ const DashboardHeader = () => {
 
   const userSession = JSON.parse(localStorage.getItem("wisenet_session") || "{}");
   const isTA = userSession.role === "TA";
+  const initials = userSession.fullName
+    ? userSession.fullName.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2)
+    : "?";
   const navigate = useNavigate();
 
   return (
@@ -24,13 +27,13 @@ const DashboardHeader = () => {
         <div className="flex items-center gap-6">
           <span
             className="text-xl font-bold wisenet-gradient-text tracking-tight cursor-pointer"
-            onClick={() => navigate("/")}
+            onClick={() => navigate("/dashboard")}
           >
             WiseNet
           </span>
           <nav className="hidden md:flex items-center gap-1">
             <a
-              onClick={(e) => { e.preventDefault(); navigate("/"); }}
+              onClick={(e) => { e.preventDefault(); navigate("/dashboard"); }}
               href="#"
               className="px-3 py-1.5 text-sm font-medium text-foreground rounded-md hover:bg-secondary transition-colors"
             >
@@ -41,6 +44,13 @@ const DashboardHeader = () => {
               className="px-3 py-1.5 text-sm font-medium text-muted-foreground rounded-md hover:bg-secondary transition-colors"
             >
               My courses
+            </a>
+            <a
+              onClick={(e) => { e.preventDefault(); navigate("/calendar"); }}
+              href="#"
+              className="px-3 py-1.5 text-sm font-medium text-muted-foreground rounded-md hover:bg-secondary transition-colors"
+            >
+              Calendar
             </a>
           </nav>
         </div>
@@ -57,7 +67,7 @@ const DashboardHeader = () => {
             <DropdownMenuTrigger asChild>
               <button className="flex items-center gap-1.5 hover:bg-secondary/50 p-1 pr-2 rounded-full transition-colors focus:outline-none">
                 <div className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary text-foreground text-xs font-semibold border border-border/50">
-                  SC
+                  {initials}
                 </div>
                 <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
               </button>

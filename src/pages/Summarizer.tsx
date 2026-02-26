@@ -85,7 +85,7 @@ const Summarizer = () => {
     <div className="min-h-screen bg-background">
       {/* Header */}
       <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-card px-6">
-        <button onClick={() => navigate("/")} className="p-2 rounded-full hover:bg-secondary transition-colors">
+        <button onClick={() => navigate("/dashboard")} className="p-2 rounded-full hover:bg-secondary transition-colors">
           <ArrowLeft className="h-5 w-5 text-muted-foreground" />
         </button>
         <span className="text-xl font-bold wisenet-gradient-text tracking-tight">WiseNet</span>
