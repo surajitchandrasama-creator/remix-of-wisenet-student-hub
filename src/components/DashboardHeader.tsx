@@ -13,6 +13,9 @@ import { ScheduleUploadModal } from "./ScheduleUploadModal";
 const DashboardHeader = () => {
   const [editMode, setEditMode] = useState(false);
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
+
+  const userSession = JSON.parse(localStorage.getItem("wisenet_session") || "{}");
+  const isTA = userSession.role === "TA";
   const navigate = useNavigate();
 
   return (
@@ -66,6 +69,15 @@ const DashboardHeader = () => {
                 className="cursor-pointer py-2"
                 onSelect={(e) => {
                   e.preventDefault();
+                  navigate("/attendance");
+                }}
+              >
+                Attendance
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="cursor-pointer py-2"
+                onSelect={(e) => {
+                  e.preventDefault();
                   navigate("/calendar");
                 }}
               >
@@ -76,17 +88,31 @@ const DashboardHeader = () => {
               <DropdownMenuItem className="cursor-pointer py-2">Reports</DropdownMenuItem>
               <DropdownMenuSeparator className="my-1" />
               <DropdownMenuItem className="cursor-pointer py-2">Preferences</DropdownMenuItem>
+              {isTA && (
+                <>
+                  <DropdownMenuSeparator className="my-1" />
+                  <DropdownMenuItem
+                    className="cursor-pointer py-2 font-medium"
+                    onSelect={(e) => {
+                      e.preventDefault();
+                      setIsScheduleModalOpen(true);
+                    }}
+                  >
+                    Edit Schedule
+                  </DropdownMenuItem>
+                </>
+              )}
               <DropdownMenuSeparator className="my-1" />
               <DropdownMenuItem
-                className="cursor-pointer py-2 font-medium"
+                className="cursor-pointer py-2"
                 onSelect={(e) => {
                   e.preventDefault();
-                  setIsScheduleModalOpen(true);
+                  localStorage.removeItem("wisenet_session");
+                  navigate("/login");
                 }}
               >
-                Edit Schedule
+                Log out
               </DropdownMenuItem>
-              <DropdownMenuItem className="cursor-pointer py-2">Log out</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
 

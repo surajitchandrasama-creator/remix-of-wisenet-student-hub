@@ -49,6 +49,7 @@ export function ScheduleUploadModal({ open, onOpenChange }: { open: boolean, onO
     const navigate = useNavigate();
     const [date, setDate] = useState<Date>();
     const [file, setFile] = useState<File | null>(null);
+    const [isCalendarOpen, setIsCalendarOpen] = useState(false);
 
     const handleDrop = (e: React.DragEvent) => {
         e.preventDefault();
@@ -136,17 +137,17 @@ export function ScheduleUploadModal({ open, onOpenChange }: { open: boolean, onO
                 // Determine all unique weeks involved in this upload
                 const updatedWeeks = new Set(validSessions.map(s => s.weekStart));
 
-                const existingRaw = sessionStorage.getItem("calendar-schedule");
+                const existingRaw = localStorage.getItem("calendar-schedule");
                 let existing: any[] = existingRaw ? JSON.parse(existingRaw) : [];
 
                 // Clear out existing sessions ONLY for the weeks we just uploaded (to cleanly replace them)
                 existing = existing.filter((s: any) => !updatedWeeks.has(s.weekStart));
 
                 const combined = [...existing, ...validSessions];
-                sessionStorage.setItem("calendar-schedule", JSON.stringify(combined));
+                localStorage.setItem("calendar-schedule", JSON.stringify(combined));
 
                 if (date) {
-                    sessionStorage.setItem("calendar-start-date", date.toISOString());
+                    localStorage.setItem("calendar-start-date", date.toISOString());
                 }
             }
 
@@ -172,7 +173,6 @@ export function ScheduleUploadModal({ open, onOpenChange }: { open: boolean, onO
                 onOpenChange(false);
                 setFile(null);
                 setDate(undefined);
-                navigate("/calendar");
             } else {
                 toast.error("Failed to parse the schedule file. Please check format.");
             }
@@ -193,7 +193,7 @@ export function ScheduleUploadModal({ open, onOpenChange }: { open: boolean, onO
                     {/* Week Selector */}
                     <div className="space-y-2 flex flex-col">
                         <label className="text-sm font-medium text-foreground">Week Starting Date</label>
-                        <Popover>
+                        <Popover open={isCalendarOpen} onOpenChange={setIsCalendarOpen}>
                             <PopoverTrigger asChild>
                                 <button
                                     type="button"
@@ -214,9 +214,21 @@ export function ScheduleUploadModal({ open, onOpenChange }: { open: boolean, onO
                                 <Calendar
                                     mode="single"
                                     selected={date}
-                                    onSelect={setDate}
+                                    onSelect={(d) => {
+                                        setDate(d);
+                                    }}
+                                    disabled={(d) => d.getDay() !== 1} /* 1 is Monday */
                                     initialFocus
                                 />
+                                <div className="p-2 border-t flex justify-end">
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsCalendarOpen(false)}
+                                        className="bg-primary text-primary-foreground text-xs font-semibold px-4 py-1.5 rounded-md hover:bg-primary/90 transition-colors"
+                                    >
+                                        OK
+                                    </button>
+                                </div>
                             </PopoverContent>
                         </Popover>
                         <p className="text-[11px] text-muted-foreground mt-1">Select the starting date of the week this schedule applies to.</p>
