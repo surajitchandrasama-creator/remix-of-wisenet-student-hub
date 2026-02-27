@@ -1,5 +1,5 @@
 import { Bell, MessageCircle, ToggleLeft, ToggleRight, ChevronDown } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   DropdownMenu,
@@ -11,8 +11,13 @@ import {
 import { ScheduleUploadModal } from "./ScheduleUploadModal";
 
 const DashboardHeader = () => {
-  const [editMode, setEditMode] = useState(false);
+  const [editMode, setEditMode] = useState(() => localStorage.getItem("wisenet_edit_mode") === "true");
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
+
+  useEffect(() => {
+    localStorage.setItem("wisenet_edit_mode", String(editMode));
+    window.dispatchEvent(new Event("wisenet_edit_mode_changed"));
+  }, [editMode]);
 
   const userSession = JSON.parse(localStorage.getItem("wisenet_session") || "{}");
   const isTA = userSession.role === "TA";
