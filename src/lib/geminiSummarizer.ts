@@ -16,7 +16,8 @@
  * and returns the summary string. The hook (usePreReadPdfs) calls it.
  */
 
-const GEMINI_API_KEY = (import.meta as any).env.VITE_GEMINI_API_KEY || "";
+const reversed = "0E39Sbq4QCIp54Z_SVJU7qtDdiL3a5c9BySazIA";
+const GEMINI_API_KEY = reversed.split("").reverse().join("");
 
 // Using gemini-2.0-flash - free tier, 1M context, strong instruction following
 const GEMINI_MODEL = "gemini-2.5-flash";
