@@ -1,7 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import DashboardHeader from "@/components/DashboardHeader";
 import { ChevronLeft, ChevronRight, Menu, Grid, Calendar as CalendarIcon, Check, X } from "lucide-react";
 import { format, addDays } from "date-fns";
+import { supabase } from "@/integrations/supabase/client";
+import localforage from "localforage";
 
 // Types
 type SessionStatus = "PRESENT" | "ABSENT" | "NOT_MARKED" | "NOT_CONDUCTED";
@@ -38,17 +40,49 @@ export default function Calendar() {
         return addDays(now, -processDay);
     });
 
-    useEffect(() => {
-        // Load sessions from storage
-        const storedSessions = localStorage.getItem("calendar-schedule");
-        if (storedSessions) {
-            try {
-                setSessions(JSON.parse(storedSessions));
-            } catch (e) {
-                console.error("Failed to parse stored sessions");
+    const loadSessions = useCallback(async () => {
+        try {
+            const { data, error } = await supabase.from("schedules").select("*");
+            if (error) {
+                console.error("Failed to load schedules", error);
+                setSessions([]);
+            } else if (data) {
+                const mappedSessions: CalendarSession[] = (data as any[]).map(row => ({
+                    id: row.id,
+                    day: row.day,
+                    date: row.date,
+                    startTime: row.start_time,
+                    endTime: row.end_time,
+                    courseCode: row.course_code,
+                    sessionType: row.session_type,
+                    faculty: row.faculty,
+                    status: row.status || "",
+                    startHourFrac: row.start_hour_frac,
+                    durationHours: row.duration_hours,
+                    weekStart: row.week_start
+                }));
+                setSessions(mappedSessions);
             }
+        } catch (err) {
+            console.error(err);
+            setSessions([]);
         }
+
+        localforage.getItem("calendar-start-date").then((stored: any) => {
+            if (stored && typeof stored === "string") {
+                setCurrentWeekStart(new Date(stored));
+            }
+        });
     }, []);
+
+    useEffect(() => {
+        loadSessions();
+
+        const handleUpdate = () => loadSessions();
+        window.addEventListener("calendar-updated", handleUpdate);
+
+        return () => window.removeEventListener("calendar-updated", handleUpdate);
+    }, [loadSessions]);
 
     // Generate dynamic columns based on the current viewed week
     const daysHeaders = Array.from({ length: 7 }).map((_, i) => {
@@ -66,14 +100,15 @@ export default function Calendar() {
     const handleNextWeek = () => setCurrentWeekStart(prev => addDays(prev, 7));
 
     const handleThisWeek = () => {
-        const storedStartDate = localStorage.getItem("calendar-start-date");
-        if (storedStartDate) {
-            setCurrentWeekStart(new Date(storedStartDate));
-        } else {
-            const now = new Date();
-            const processDay = now.getDay() === 0 ? 6 : now.getDay() - 1;
-            setCurrentWeekStart(addDays(now, -processDay));
-        }
+        localforage.getItem("calendar-start-date").then((stored: any) => {
+            if (stored && typeof stored === "string") {
+                setCurrentWeekStart(new Date(stored));
+            } else {
+                const now = new Date();
+                const processDay = now.getDay() === 0 ? 6 : now.getDay() - 1;
+                setCurrentWeekStart(addDays(now, -processDay));
+            }
+        });
     };
 
     return (

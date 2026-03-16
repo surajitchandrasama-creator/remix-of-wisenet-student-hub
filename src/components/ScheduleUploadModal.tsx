@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { format, addDays } from "date-fns";
+import localforage from "localforage";
+import { format, addDays, parseISO } from "date-fns";
 import * as xlsx from "xlsx";
+import { supabase } from "@/integrations/supabase/client";
 import {
     Dialog,
     DialogContent,
@@ -19,27 +21,41 @@ const dayMap: Record<string, number> = {
 };
 
 // Helper function to convert excel time (which might be decimal) to float hours
-const parseExcelTime = (timeRaw: string | number) => {
+const parseExcelTime = (timeRaw: string | number | undefined) => {
+    if (timeRaw === undefined || timeRaw === null) {
+        return { str: "00:00", frac: 0 };
+    }
+
     if (typeof timeRaw === "number") {
         // Excel stores time as fractional days sometimes
         const totalMinutes = Math.round(timeRaw * 24 * 60);
         const hours = Math.floor(totalMinutes / 60);
         const mins = totalMinutes % 60;
+        const frac = hours + mins / 60;
         return {
             str: `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`,
-            frac: hours + mins / 60
+            frac: Number.isFinite(frac) ? frac : 0
         };
     }
 
     // String like "09:00"
-    if (typeof timeRaw === "string" && timeRaw.includes(":")) {
-        const parts = timeRaw.split(":");
-        const h = parseInt(parts[0], 10) || 0;
-        const m = parseInt(parts[1], 10) || 0;
-        return {
-            str: timeRaw,
-            frac: h + m / 60
-        };
+    if (typeof timeRaw === "string") {
+        if (timeRaw.includes(":")) {
+            const parts = timeRaw.split(":");
+            const h = parseInt(parts[0], 10) || 0;
+            const m = parseInt(parts[1], 10) || 0;
+            const frac = h + m / 60;
+            return {
+                str: timeRaw,
+                frac: Number.isFinite(frac) ? frac : 0
+            };
+        }
+
+        // Sometimes users enter just "9" instead of "09:00"
+        const num = parseInt(timeRaw, 10);
+        if (!isNaN(num)) {
+            return { str: `${num.toString().padStart(2, '0')}:00`, frac: num };
+        }
     }
 
     return { str: "00:00", frac: 0 };
@@ -58,7 +74,7 @@ export function ScheduleUploadModal({ open, onOpenChange }: { open: boolean, onO
         }
     };
 
-    const processExcelData = (buffer: ArrayBuffer) => {
+    const processExcelData = async (buffer: ArrayBuffer) => {
         try {
             const workbook = xlsx.read(buffer, { type: "array" });
             const firstSheetName = workbook.SheetNames[0];
@@ -73,26 +89,40 @@ export function ScheduleUploadModal({ open, onOpenChange }: { open: boolean, onO
                 "yyyy-MM-dd"
             );
 
-            // Parser for "Date" column
             const getWeekStart = (dateRaw: any) => {
                 let d: Date | null = null;
                 if (typeof dateRaw === "number") {
                     d = new Date(Math.round((dateRaw - 25569) * 86400 * 1000));
                 } else if (typeof dateRaw === "string" && dateRaw.trim() !== "") {
-                    // Normalize dashes and slashes
-                    const str = dateRaw.replace(/-/g, '/');
-                    const temp = new Date(str);
-                    if (!isNaN(temp.getTime())) {
-                        d = temp;
-                    } else {
-                        const parts = dateRaw.split(/[-/]/);
-                        if (parts.length >= 2) {
-                            const day = parseInt(parts[0], 10);
-                            const monthStr = parts[1];
-                            const year = parts.length === 3 ? parseInt(parts[2], 10) : fallbackDate.getFullYear();
-                            const parsed = new Date(`${monthStr} ${day}, ${year}`);
-                            if (!isNaN(parsed.getTime())) d = parsed;
+                    const str = dateRaw.trim();
+                    const parts = str.split(/[-/]/);
+
+                    if (parts.length === 2) {
+                        // Formats like "16-Mar"
+                        const parsed = new Date(`${parts[1]} ${parts[0]}, ${fallbackDate.getFullYear()}`);
+                        if (!isNaN(parsed.getTime())) d = parsed;
+                    } else if (parts.length === 3) {
+                        // Formats like "16-03-2026" or "16/03/26". We assume DD/MM/YYYY
+                        let day = parseInt(parts[0], 10);
+                        let month = parseInt(parts[1], 10) - 1; // 0-indexed month
+                        let year = parseInt(parts[2], 10);
+
+                        // Handle 2 digit year
+                        if (year < 100) year += 2000;
+
+                        // Fallback check: If month is > 11, it might be MM-DD-YYYY format originally
+                        if (month > 11) {
+                            // Swap them
+                            day = parseInt(parts[1], 10);
+                            month = parseInt(parts[0], 10) - 1;
                         }
+
+                        const parsed = new Date(year, month, day);
+                        if (!isNaN(parsed.getTime())) d = parsed;
+                    } else {
+                        // General fallback
+                        const temp = new Date(str.replace(/-/g, '/'));
+                        if (!isNaN(temp.getTime())) d = temp;
                     }
                 }
 
@@ -110,7 +140,7 @@ export function ScheduleUploadModal({ open, onOpenChange }: { open: boolean, onO
                 const end = parseExcelTime(row["End Time"]);
 
                 let duration = end.frac - start.frac;
-                if (duration <= 0) duration = 1; // Default 1 hour if invalid
+                if (!Number.isFinite(duration) || duration <= 0) duration = 1; // Default 1 hour if invalid
 
                 const weekStartForSession = getWeekStart(row["Date"]);
 
@@ -123,7 +153,7 @@ export function ScheduleUploadModal({ open, onOpenChange }: { open: boolean, onO
                     courseCode: row["Course Code"] || "",
                     sessionType: row["Session Type"] || "",
                     faculty: row["Faculty"] || "",
-                    status: "NOT_MARKED", // We ignore status since it's just schedule
+                    status: row["Status"] || "NOT_MARKED",
                     startHourFrac: start.frac,
                     durationHours: duration,
                     weekStart: weekStartForSession
@@ -131,30 +161,78 @@ export function ScheduleUploadModal({ open, onOpenChange }: { open: boolean, onO
             });
 
             // Remove completely empty/invalid rows looking for Course Code
-            const validSessions = sessions.filter(s => s.courseCode && s.startTime !== "00:00");
+            const validSessions = sessions.filter(s => s.courseCode && s.startTime !== "00:00" && !isNaN(s.day));
 
             if (validSessions.length > 0) {
                 // Determine all unique weeks involved in this upload
-                const updatedWeeks = new Set(validSessions.map(s => s.weekStart));
+                const updatedWeeks = Array.from(new Set(validSessions.map(s => s.weekStart)));
 
-                const existingRaw = localStorage.getItem("calendar-schedule");
-                let existing: any[] = existingRaw ? JSON.parse(existingRaw) : [];
+                // Delete existing sessions in supabase for the detected weeks
+                for (const weekStart of updatedWeeks) {
+                    await (supabase.from("schedules") as any).delete().eq("week_start", weekStart);
+                }
 
-                // Clear out existing sessions ONLY for the weeks we just uploaded (to cleanly replace them)
-                existing = existing.filter((s: any) => !updatedWeeks.has(s.weekStart));
+                // Map data to supabase schema
+                const supaSchedules = validSessions.map(s => ({
+                    id: s.id,
+                    day: s.day,
+                    date: s.date,
+                    start_time: s.startTime,
+                    end_time: s.endTime,
+                    course_code: s.courseCode,
+                    session_type: s.sessionType,
+                    faculty: s.faculty,
+                    status: s.status,
+                    start_hour_frac: s.startHourFrac,
+                    duration_hours: s.durationHours,
+                    week_start: s.weekStart
+                }));
 
-                const combined = [...existing, ...validSessions];
-                localStorage.setItem("calendar-schedule", JSON.stringify(combined));
+                // Insert into Supabase
+                const { error } = await (supabase.from("schedules") as any).insert(supaSchedules);
+                if (error) {
+                    console.error("Supabase insert error", error);
+                    throw new Error("Database error: " + error.message);
+                }
+
+                // Automatically map uploaded "Evaluations" from valid sessions right into the Timeline tracker!
+                const evaluationSessions = validSessions.filter(s => s.sessionType && s.sessionType.toLowerCase().includes("evaluation"));
+
+                if (evaluationSessions.length > 0) {
+                    const timelineEntries = evaluationSessions.map(s => {
+                        const baseDate = parseISO(s.weekStart);
+                        const specificEvalDate = format(addDays(baseDate, s.day), "yyyy-MM-dd");
+
+                        return {
+                            title: `${s.courseCode} Evaluation`,
+                            description: `Evaluation is due · Scheduled strictly from ${s.startTime} to ${s.endTime} for ${s.courseCode} under ${s.faculty}`,
+                            due_date: specificEvalDate,
+                            time: s.startTime
+                        };
+                    });
+
+                    // We optionally delete matching past automated evaluations on those identical dates to prevent duplicated ghost UI cards on re-upload
+                    for (const s of timelineEntries) {
+                        await (supabase.from("timeline_activities") as any).delete()
+                            .eq("due_date", s.due_date)
+                            .eq("title", s.title);
+                    }
+
+                    await (supabase.from("timeline_activities") as any).insert(timelineEntries);
+                }
 
                 if (date) {
-                    localStorage.setItem("calendar-start-date", date.toISOString());
+                    await localforage.setItem("calendar-start-date", date.toISOString());
+                    window.dispatchEvent(new Event("calendar-updated"));
+                    // Also fire timeline updated event incase the system auto-detected evaluations!
+                    window.dispatchEvent(new Event("timeline-updated"));
                 }
             }
 
             return true;
-        } catch (error) {
+        } catch (error: any) {
             console.error(error);
-            return false;
+            throw new Error(error.message || "Unknown parsing error");
         }
     };
 
@@ -166,15 +244,20 @@ export function ScheduleUploadModal({ open, onOpenChange }: { open: boolean, onO
         }
 
         const reader = new FileReader();
-        reader.onload = (e) => {
+        reader.onload = async (e) => {
             const buffer = e.target?.result;
-            if (buffer && processExcelData(buffer as ArrayBuffer)) {
-                toast.success("Schedule processed successfully!");
-                onOpenChange(false);
-                setFile(null);
-                setDate(undefined);
+            if (buffer) {
+                try {
+                    await processExcelData(buffer as ArrayBuffer);
+                    toast.success("Schedule processed successfully!");
+                    onOpenChange(false);
+                    setFile(null);
+                    setDate(undefined);
+                } catch (err: any) {
+                    toast.error(`Failed: ${err.message}`);
+                }
             } else {
-                toast.error("Failed to parse the schedule file. Please check format.");
+                toast.error("Failed to read the schedule file.");
             }
         };
         reader.readAsArrayBuffer(file);

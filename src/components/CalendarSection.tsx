@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
+import localforage from "localforage";
 import { ChevronLeft, ChevronRight, RefreshCw, Calendar as CalendarIcon } from "lucide-react";
 import { format, addDays } from "date-fns";
+import { supabase } from "@/integrations/supabase/client";
 
 interface CalendarSession {
   id: string;
@@ -20,28 +22,60 @@ interface CalendarSession {
 const CalendarSection = () => {
   const [sessions, setSessions] = useState<CalendarSession[]>([]);
   const [currentWeekStart, setCurrentWeekStart] = useState<Date>(() => {
-    const stored = localStorage.getItem("calendar-start-date");
-    if (stored) return new Date(stored);
     const now = new Date();
     const day = now.getDay() === 0 ? 6 : now.getDay() - 1;
     return addDays(now, -day);
   });
 
-  const loadSessions = useCallback(() => {
-    const stored = localStorage.getItem("calendar-schedule");
-    if (stored) {
-      try {
-        setSessions(JSON.parse(stored));
-      } catch {
+  const loadSessions = useCallback(async () => {
+    try {
+      const { data, error } = await supabase.from("schedules").select("*");
+      if (error) {
+        console.error("Failed to load schedules", error);
         setSessions([]);
+      } else if (data) {
+        // Map database fields back to camelCase frontend properties
+        const mappedSessions: CalendarSession[] = (data as any[]).map(row => ({
+          id: row.id,
+          day: row.day,
+          date: row.date,
+          startTime: row.start_time,
+          endTime: row.end_time,
+          courseCode: row.course_code,
+          sessionType: row.session_type,
+          faculty: row.faculty,
+          status: row.status || "",
+          startHourFrac: row.start_hour_frac,
+          durationHours: row.duration_hours,
+          weekStart: row.week_start
+        }));
+        setSessions(mappedSessions);
       }
-    } else {
+    } catch (err) {
+      console.error(err);
       setSessions([]);
     }
+
+    localforage.getItem("calendar-start-date").then((stored: any) => {
+      if (stored && typeof stored === "string") {
+        setCurrentWeekStart(new Date(stored));
+      }
+    });
   }, []);
 
   useEffect(() => {
     loadSessions();
+
+    const handleUpdate = () => loadSessions();
+    window.addEventListener("calendar-updated", handleUpdate);
+
+    // Clean up local storage bloat if it exists
+    try {
+      localStorage.removeItem("calendar-schedule");
+      localStorage.removeItem("calendar-start-date");
+    } catch { }
+
+    return () => window.removeEventListener("calendar-updated", handleUpdate);
   }, [loadSessions]);
 
   const weekStartKey = format(currentWeekStart, "yyyy-MM-dd");

@@ -1,4 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import localforage from "localforage";
 import { HfInference } from "@huggingface/inference";
 import {
   CaseType,
@@ -9,6 +11,7 @@ import {
 } from "@/lib/preReadPrompt";
 
 interface UploadedPdf {
+  id?: string;
   fileName: string;
   text: string;
   summary: string;
@@ -25,7 +28,7 @@ interface UploadedPdf {
 
 async function extractTextFromPdf(file: File): Promise<string> {
   const pdfjsLib = await import("pdfjs-dist");
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   const pages: string[] = [];
@@ -45,31 +48,49 @@ export function usePreReadPdfs() {
     3) Upload scanned PDF -> gets "Not enough text extracted (use text-based PDF)." error.
   */
 
-  const [pdfsByItem, setPdfsByItem] = useState<Record<string, UploadedPdf[]>>(() => {
-    try {
-      const stored = localStorage.getItem("wisenet_pdfs");
-      const parsed = stored ? JSON.parse(stored) : {};
-      const normalized: Record<string, UploadedPdf[]> = {};
-      for (const key of Object.keys(parsed || {})) {
-        normalized[key] = (parsed[key] || []).map((pdf: any) => ({
-          ...pdf,
-          caseType: pdf.caseType || "",
-          extractedTextLength: typeof pdf.extractedTextLength === "number"
-            ? pdf.extractedTextLength
-            : (pdf.text || "").trim().length,
-          refinement: pdf.refinement || "",
-          truncated: Boolean(pdf.truncated),
-        }));
-      }
-      return normalized;
-    } catch {
-      return {};
-    }
-  });
+  const [pdfsByItem, setPdfsByItem] = useState<Record<string, UploadedPdf[]>>({});
+  const [isLoaded, setIsLoaded] = useState(false);
 
+  // Initialize from Supabase
   useEffect(() => {
-    localStorage.setItem("wisenet_pdfs", JSON.stringify(pdfsByItem));
-  }, [pdfsByItem]);
+    const fetchPdfs = async () => {
+      const { data, error } = await (supabase.from("pre_read_pdfs") as any).select("*");
+      if (error) {
+        console.error("Failed to load pdfs", error);
+      } else if (data) {
+        const normalized: Record<string, UploadedPdf[]> = {};
+        for (const row of data) {
+          const itemKey = row.session_id;
+          if (!normalized[itemKey]) normalized[itemKey] = [];
+          normalized[itemKey].push({
+            id: row.id,
+            fileName: row.file_name,
+            text: row.text_content || "",
+            summary: row.summary || "",
+            caseType: (row.case_type as CaseType) || "",
+            refinement: row.refinement || "",
+            extractedTextLength: row.extracted_text_length || 0,
+            truncated: row.truncated || false,
+            loading: row.loading || false,
+            error: row.error || "",
+            lastUpdated: row.last_updated || new Date().toISOString(),
+          });
+        }
+        setPdfsByItem(normalized);
+      }
+      setIsLoaded(true);
+    };
+
+    fetchPdfs();
+
+    // Clean up bloated local storage if it exists to free quota for user auth
+    try {
+      localStorage.removeItem("wisenet_pdfs");
+    } catch (e) { }
+  }, []);
+
+  // Optional: Auto fetch periodically or on window focus if multiple users edit
+  // Save changes to localforage removed as we manage db state per action now.
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeUploadKey, setActiveUploadKey] = useState<string | null>(null);
@@ -91,8 +112,9 @@ export function usePreReadPdfs() {
         try {
           text = await extractTextFromPdf(file);
           if (!text.trim()) error = "Could not extract text from this PDF.";
-        } catch {
-          error = "Failed to read this PDF.";
+        } catch (err: any) {
+          console.error("PDF extraction error:", err);
+          error = err.message || "Failed to read this PDF.";
         }
 
         newPdfs.push({
@@ -110,10 +132,53 @@ export function usePreReadPdfs() {
         });
       }
 
-      setPdfsByItem((prev) => ({
-        ...prev,
-        [activeUploadKey]: [...(prev[activeUploadKey] || []), ...newPdfs],
-      }));
+      const newRecords = [];
+      for (const pdf of newPdfs) {
+        const record = {
+          session_id: activeUploadKey,
+          file_name: pdf.fileName,
+          text_content: pdf.text,
+          summary: pdf.summary,
+          case_type: pdf.caseType,
+          refinement: pdf.refinement,
+          extracted_text_length: pdf.extractedTextLength,
+          truncated: pdf.truncated,
+          loading: pdf.loading,
+          error: pdf.error,
+          last_updated: pdf.lastUpdated,
+        };
+        newRecords.push(record);
+      }
+
+      const { data, error } = await (supabase.from("pre_read_pdfs") as any).insert(newRecords).select();
+
+      if (!error && data) {
+        const dbPdfs: UploadedPdf[] = (data as any[]).map(row => ({
+          id: row.id,
+          fileName: row.file_name,
+          text: row.text_content || "",
+          summary: row.summary || "",
+          caseType: (row.case_type as CaseType) || "",
+          refinement: row.refinement || "",
+          extractedTextLength: row.extracted_text_length || 0,
+          truncated: row.truncated || false,
+          loading: row.loading || false,
+          error: row.error || "",
+          lastUpdated: row.last_updated || new Date().toISOString(),
+        }));
+
+        setPdfsByItem((prev) => ({
+          ...prev,
+          [activeUploadKey]: [...(prev[activeUploadKey] || []), ...dbPdfs],
+        }));
+      } else {
+        console.error("Supabase insert error:", error);
+        // fallback if insert fails
+        setPdfsByItem((prev) => ({
+          ...prev,
+          [activeUploadKey]: [...(prev[activeUploadKey] || []), ...(newPdfs.map(p => ({ ...p, error: error?.message || p.error, caseType: p.caseType as CaseType | "" })))],
+        }));
+      }
 
       if (fileInputRef.current) fileInputRef.current.value = "";
       setActiveUploadKey(null);
@@ -121,39 +186,82 @@ export function usePreReadPdfs() {
     [activeUploadKey]
   );
 
-  const removePdf = useCallback((itemKey: string, index: number) => {
+  const removePdf = useCallback(async (itemKey: string, index: number) => {
+    const pdfToRemove = pdfsByItem[itemKey]?.[index];
+
     setPdfsByItem((prev) => {
       const list = [...(prev[itemKey] || [])];
       list.splice(index, 1);
       return { ...prev, [itemKey]: list };
     });
-  }, []);
 
-  const updatePdfCaseType = useCallback((itemKey: string, index: number, caseType: CaseType | "") => {
+    if (pdfToRemove && pdfToRemove.id) {
+      await (supabase.from("pre_read_pdfs") as any).delete().eq("id", pdfToRemove.id);
+    }
+  }, [pdfsByItem]);
+
+  const updatePdfCaseType = useCallback(async (itemKey: string, index: number, caseType: CaseType | "") => {
+    const pdfToUpdate = pdfsByItem[itemKey]?.[index];
+    if (!pdfToUpdate) return;
+    const lastUpdated = new Date().toISOString();
+
     setPdfsByItem((prev) => {
       const list = [...(prev[itemKey] || [])];
-      if (!list[index]) return prev;
-      list[index] = { ...list[index], caseType, lastUpdated: new Date().toISOString() };
+      list[index] = { ...list[index], caseType, lastUpdated };
       return { ...prev, [itemKey]: list };
     });
-  }, []);
 
-  const updatePdfRefinement = useCallback((itemKey: string, index: number, refinement: string) => {
+    if (pdfToUpdate.id) {
+      await (supabase.from("pre_read_pdfs") as any).update({ case_type: caseType, last_updated: lastUpdated }).eq("id", pdfToUpdate.id);
+    }
+  }, [pdfsByItem]);
+
+  const updatePdfRefinement = useCallback(async (itemKey: string, index: number, refinement: string) => {
+    const pdfToUpdate = pdfsByItem[itemKey]?.[index];
+    if (!pdfToUpdate) return;
+    const lastUpdated = new Date().toISOString();
+
     setPdfsByItem((prev) => {
       const list = [...(prev[itemKey] || [])];
-      if (!list[index]) return prev;
-      list[index] = { ...list[index], refinement, lastUpdated: new Date().toISOString() };
+      list[index] = { ...list[index], refinement, lastUpdated };
       return { ...prev, [itemKey]: list };
     });
-  }, []);
+
+    if (pdfToUpdate.id) {
+      await (supabase.from("pre_read_pdfs") as any).update({ refinement: refinement, last_updated: lastUpdated }).eq("id", pdfToUpdate.id);
+    }
+  }, [pdfsByItem]);
+
+  const updatePdfSummary = useCallback(async (itemKey: string, index: number, newSummary: string) => {
+    const pdfToUpdate = pdfsByItem[itemKey]?.[index];
+    if (!pdfToUpdate) return;
+    const lastUpdated = new Date().toISOString();
+
+    setPdfsByItem((prev) => {
+      const list = [...(prev[itemKey] || [])];
+      list[index] = { ...list[index], summary: newSummary, lastUpdated };
+      return { ...prev, [itemKey]: list };
+    });
+
+    if (pdfToUpdate.id) {
+      await (supabase.from("pre_read_pdfs") as any).update({ summary: newSummary, last_updated: lastUpdated }).eq("id", pdfToUpdate.id);
+    }
+  }, [pdfsByItem]);
 
   const summarizePdf = useCallback(
     async (itemKey: string, index: number) => {
+      const pdfToUpdate = pdfsByItem[itemKey]?.[index];
+      if (!pdfToUpdate) return;
+
       setPdfsByItem((prev) => {
         const list = [...(prev[itemKey] || [])];
         list[index] = { ...list[index], loading: true, error: "", summary: "" };
         return { ...prev, [itemKey]: list };
       });
+
+      if (pdfToUpdate.id) {
+        await (supabase.from("pre_read_pdfs") as any).update({ loading: true, error: "", summary: "" }).eq("id", pdfToUpdate.id);
+      }
 
       try {
         const pdf = pdfsByItem[itemKey]?.[index];
@@ -212,6 +320,8 @@ export function usePreReadPdfs() {
           }
         }
 
+        const lastUpdated = new Date().toISOString();
+
         setPdfsByItem((prev) => {
           const list = [...(prev[itemKey] || [])];
           list[index] = {
@@ -219,22 +329,43 @@ export function usePreReadPdfs() {
             loading: false,
             summary,
             truncated: wasTruncated,
-            lastUpdated: new Date().toISOString(),
+            lastUpdated,
           };
           return { ...prev, [itemKey]: list };
         });
+
+        if (pdf.id) {
+          await (supabase.from("pre_read_pdfs") as any).update({
+            summary,
+            truncated: wasTruncated,
+            loading: false,
+            last_updated: lastUpdated
+          }).eq("id", pdf.id);
+        }
+
       } catch (e: any) {
         console.error("HuggingFace summarization error:", e);
+        const errorMsg = e.message || "Summarization failed.";
+        const lastUpdated = new Date().toISOString();
         setPdfsByItem((prev) => {
           const list = [...(prev[itemKey] || [])];
           list[index] = {
             ...list[index],
             loading: false,
-            error: e.message || "Summarization failed.",
-            lastUpdated: new Date().toISOString(),
+            error: errorMsg,
+            lastUpdated,
           };
           return { ...prev, [itemKey]: list };
         });
+
+        const pdf = pdfsByItem[itemKey]?.[index];
+        if (pdf && pdf.id) {
+          await (supabase.from("pre_read_pdfs") as any).update({
+            error: errorMsg,
+            loading: false,
+            last_updated: lastUpdated
+          }).eq("id", pdf.id);
+        }
       }
     },
     [pdfsByItem]
@@ -249,5 +380,6 @@ export function usePreReadPdfs() {
     updatePdfCaseType,
     updatePdfRefinement,
     summarizePdf,
+    updatePdfSummary,
   };
 }

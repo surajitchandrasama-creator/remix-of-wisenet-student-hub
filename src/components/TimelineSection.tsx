@@ -1,6 +1,8 @@
 import { useState, useMemo, useEffect } from "react";
+import localforage from "localforage";
 import { format, isBefore, addDays, startOfDay } from "date-fns";
 import { ChevronDown, FileUp, Check, Plus, Edit2, Trash2 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -79,15 +81,40 @@ const TimelineSection = () => {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | string | null>(null);
 
-  const [activities, setActivities] = useState(() => {
-    try {
-      const saved = localStorage.getItem("wisenet_timeline_activities");
-      if (saved) {
-        return JSON.parse(saved).map((a: any) => ({ ...a, dueDate: new Date(a.dueDate) }));
+  const [activities, setActivities] = useState<any[]>(RAW_ACTIVITIES);
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  useEffect(() => {
+    const loadTimelines = async () => {
+      try {
+        const { data, error } = await supabase.from("timeline_activities").select("*");
+        if (data && !error) {
+          setActivities(data.map((a: any) => {
+            // Trim standard timestamps into localized midnight dates to prevent timezone UTC shifts moving late night objects to next-day mornings
+            const rawDatePart = (a.due_date || "").split("T")[0] || format(new Date(), "yyyy-MM-dd");
+            return {
+              id: a.id,
+              title: a.title,
+              description: a.description,
+              time: a.time,
+              dueDate: new Date(`${rawDatePart}T23:59:59`),
+              type: a.type
+            };
+          }));
+        }
+        setIsLoaded(true);
+      } catch (e) {
+        setIsLoaded(true);
       }
-    } catch { }
-    return RAW_ACTIVITIES;
-  });
+    };
+
+    loadTimelines();
+
+    const handleUpdate = () => loadTimelines();
+    window.addEventListener("timeline-updated", handleUpdate);
+
+    return () => window.removeEventListener("timeline-updated", handleUpdate);
+  }, []);
 
   const [newActivity, setNewActivity] = useState({
     code: "",
@@ -101,10 +128,6 @@ const TimelineSection = () => {
     window.addEventListener("wisenet_edit_mode_changed", handleEditMode);
     return () => window.removeEventListener("wisenet_edit_mode_changed", handleEditMode);
   }, []);
-
-  useEffect(() => {
-    localStorage.setItem("wisenet_timeline_activities", JSON.stringify(activities));
-  }, [activities]);
 
   const userSession = JSON.parse(localStorage.getItem("wisenet_session") || "{}");
   const isTA = userSession.role === "TA";
@@ -123,29 +146,37 @@ const TimelineSection = () => {
     }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!newActivity.code || !newActivity.dueDate) return;
 
     if (editingId) {
+      const updatedActivity = {
+        title: newActivity.code,
+        description: `${newActivity.type || "Activity"} is due · ${newActivity.subject}`,
+        due_date: `${newActivity.dueDate}T23:59:59`
+      };
+
       setActivities(prev => prev.map(a =>
         a.id === editingId
-          ? {
-            ...a,
-            title: newActivity.code,
-            description: `${newActivity.type} is due · ${newActivity.subject}`,
-            dueDate: new Date(`${newActivity.dueDate}T23:59:59`)
-          }
+          ? { ...a, ...updatedActivity, dueDate: new Date(`${newActivity.dueDate}T23:59:59`) }
           : a
       ));
+
+      await (supabase.from("timeline_activities") as any).update(updatedActivity).eq("id", editingId);
+
     } else {
+      const newId = Date.now().toString();
       const newEntry = {
-        id: Date.now(),
+        id: newId,
         title: newActivity.code,
-        description: `${newActivity.type} is due · ${newActivity.subject}`,
+        description: `${newActivity.type || "Activity"} is due · ${newActivity.subject}`,
         time: "23:59",
-        dueDate: new Date(`${newActivity.dueDate}T23:59:59`)
+        due_date: `${newActivity.dueDate}T23:59:59`
       };
-      setActivities(prev => [...prev, newEntry]);
+
+      setActivities(prev => [...prev, { ...newEntry, type: newActivity.type || "Activity", dueDate: new Date(`${newActivity.dueDate}T23:59:59`) }]);
+
+      await (supabase.from("timeline_activities") as any).insert([newEntry]);
     }
 
     setIsFormOpen(false);
@@ -165,8 +196,9 @@ const TimelineSection = () => {
     setIsFormOpen(true);
   };
 
-  const handleDelete = (id: number | string) => {
+  const handleDelete = async (id: number | string) => {
     setActivities(prev => prev.filter(a => a.id !== id));
+    await (supabase.from("timeline_activities") as any).delete().eq("id", id);
   };
 
   const displayData = useMemo(() => {
