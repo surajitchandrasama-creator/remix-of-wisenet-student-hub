@@ -1,14 +1,16 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import localforage from "localforage";
-import { HfInference } from "@huggingface/inference";
 import {
   CaseType,
   buildFormatRepairUserPrompt,
   buildSystemPrompt,
   FORMAT_REPAIR_SYSTEM_PROMPT,
   isValidSummary,
+  preprocessCaseText,
 } from "@/lib/preReadPrompt";
+
+import { callGeminiFlash } from "@/lib/geminiSummarizer";
 
 interface UploadedPdf {
   id?: string;
@@ -88,9 +90,6 @@ export function usePreReadPdfs() {
       localStorage.removeItem("wisenet_pdfs");
     } catch (e) { }
   }, []);
-
-  // Optional: Auto fetch periodically or on window focus if multiple users edit
-  // Save changes to localforage removed as we manage db state per action now.
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeUploadKey, setActiveUploadKey] = useState<string | null>(null);
@@ -173,7 +172,6 @@ export function usePreReadPdfs() {
         }));
       } else {
         console.error("Supabase insert error:", error);
-        // fallback if insert fails
         setPdfsByItem((prev) => ({
           ...prev,
           [activeUploadKey]: [...(prev[activeUploadKey] || []), ...(newPdfs.map(p => ({ ...p, error: error?.message || p.error, caseType: p.caseType as CaseType | "" })))],
@@ -280,43 +278,33 @@ export function usePreReadPdfs() {
           refinement: pdf.refinement,
         });
 
-        const truncatedText = pdf.text.slice(0, 25000);
-        const wasTruncated = pdf.text.length > 25000;
+        // ── KEY CHANGE 1: Preprocess text to remove boilerplate ──
+        const cleanedText = preprocessCaseText(pdf.text);
 
-        // Keep previous frontend token behavior as requested.
-        const reversedToken = "xsiKxwPBeaFEEklmyGovEKEZpRNikMlsau_fh";
-        const HF_TOKEN = reversedToken.split("").reverse().join("");
+        // ── KEY CHANGE 2: No more 25k truncation. Gemini Flash handles 1M tokens.
+        // We still set a sane upper bound to avoid accidentally sending
+        // a 500-page document, but 200k chars (~50k tokens) covers any MBA case.
+        const maxChars = 200_000;
+        const finalText = cleanedText.slice(0, maxChars);
+        const wasTruncated = cleanedText.length > maxChars;
 
-        const hf = new HfInference(HF_TOKEN);
-        const response = await hf.chatCompletion({
-          model: "meta-llama/Meta-Llama-3-8B-Instruct",
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: `Please summarize the following case study:\n\n${truncatedText}` },
-          ],
-          max_tokens: 1500,
-          temperature: 0.25,
-        });
+        // ── KEY CHANGE 3: Use Gemini Flash instead of HuggingFace Llama 3 8B ──
+        const userMessage = `Analyze the following case study and produce the structured discussion brief:\n\n${finalText}`;
 
-        let summary = response.choices?.[0]?.message?.content?.trim() || "";
+        let summary = await callGeminiFlash(systemPrompt, userMessage);
         if (!summary) throw new Error("No summary generated.");
 
+        // ── Format repair if needed (also via Gemini now) ──
         if (!isValidSummary(summary)) {
-          const repairResponse = await hf.chatCompletion({
-            model: "meta-llama/Meta-Llama-3-8B-Instruct",
-            messages: [
-              { role: "system", content: FORMAT_REPAIR_SYSTEM_PROMPT },
-              { role: "user", content: buildFormatRepairUserPrompt(summary) },
-            ],
-            max_tokens: 1500,
-            temperature: 0.2,
-          });
+          const repairedSummary = await callGeminiFlash(
+            FORMAT_REPAIR_SYSTEM_PROMPT,
+            buildFormatRepairUserPrompt(summary)
+          );
 
-          const repairedSummary = repairResponse.choices?.[0]?.message?.content?.trim() || "";
           if (repairedSummary) {
             summary = repairedSummary;
           } else {
-            throw new Error("No summary generated.");
+            throw new Error("Summary format repair failed.");
           }
         }
 
@@ -344,7 +332,7 @@ export function usePreReadPdfs() {
         }
 
       } catch (e: any) {
-        console.error("HuggingFace summarization error:", e);
+        console.error("Gemini summarization error:", e);
         const errorMsg = e.message || "Summarization failed.";
         const lastUpdated = new Date().toISOString();
         setPdfsByItem((prev) => {

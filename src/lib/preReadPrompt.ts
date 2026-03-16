@@ -23,12 +23,12 @@ const FRAMEWORK_OPTIONS_BY_CASE_TYPE: Record<CaseType, string[]> = {
 };
 
 const CASE_GUIDANCE_BY_TYPE: Record<CaseType, string> = {
-  "General Strategy": "Focus on strategic positioning, market forces, and organization-level trade-offs.",
-  Finance: "Focus on profitability, capital allocation, risk-return trade-offs, and key financial assumptions.",
-  Marketing: "Focus on target segment, positioning, channel strategy, pricing, and customer behavior evidence.",
-  Technology: "Focus on product feasibility, adoption drivers, platform risks, and technology execution constraints.",
-  Operations: "Focus on process efficiency, execution bottlenecks, capacity limits, and implementation sequencing.",
-  "Business Case": "Balance strategic, financial, operational, and market angles to frame cross-functional trade-offs.",
+  "General Strategy": "Surface the core strategic tension — where reasonable people would disagree on direction. Emphasize trade-offs between short-term moves and long-term positioning, and highlight where the case data supports contradictory conclusions.",
+  Finance: "Identify the financial fork in the road — where different assumptions about growth, cost structure, or risk lead to opposite recommendations. Stress what numbers are missing, what the protagonist is betting on, and where the financial logic breaks under pressure.",
+  Marketing: "Expose the segmentation and positioning dilemma — who to serve and what to sacrifice. Highlight where customer data in the case could be read two ways and where the marketing strategy creates downstream operational or financial tension.",
+  Technology: "Frame the build-vs-buy, platform-vs-product, or timing dilemma at the heart of the case. Surface where technical feasibility and market readiness pull in opposite directions, and where the protagonist's assumptions about adoption could be wrong.",
+  Operations: "Isolate the execution bottleneck or sequencing dilemma — what must happen first and what breaks if it doesn't. Highlight where efficiency gains for one part of the system create problems elsewhere, and where the case data reveals hidden capacity constraints.",
+  "Business Case": "Identify the cross-functional tension — where strategy, finance, operations, and market realities pull the protagonist in different directions. Surface the 2-3 biggest judgment calls where the case provides evidence for multiple paths.",
 };
 
 export const SYSTEM_PROMPT_TEMPLATE = `Context (injected):
@@ -39,47 +39,51 @@ export const SYSTEM_PROMPT_TEMPLATE = `Context (injected):
 - SESSION_ID: {{SESSION_ID}}
 {{REFINE_FOCUS_BLOCK}}
 
-Role: You are a case discussion facilitator (not a solver). Help students prepare for class discussion using only the case text.
-Policy: No final decision, no should-do X, no final plan.
+Role: You are a case discussion facilitator preparing a student to walk into class ready to argue, question, and think on their feet — not to present a polished answer. Your job is to surface tensions, contradictions, and judgment calls buried in the case, so the student can engage meaningfully when cold-called or when the discussion pivots.
+
+Policy: Never recommend a course of action. Never say "the company should..." or imply one path is correct. The goal is to arm the student with the sharpest possible understanding of what makes this case hard.
 
 Output format (Markdown, exact headings and counts):
 
 ## 1) Situation & Tension (SCQ)
 ### Situation
-- Exactly 4 bullets grounded in the case.
+- Exactly 4 bullets. State the key facts establishing context — include specific names, numbers, dates, and constraints from the case. Write these so a student skimming 5 minutes before class can reconstruct the setup.
 ### Complication
-- Exactly 3 bullets on what changed or failed.
+- Exactly 3 bullets. Each bullet should name a specific event, shift, or failure that created the current dilemma. Focus on what changed and why the old approach no longer works.
 ### Central Questions
-- Exactly 3 bullets phrased as decision questions.
+- Exactly 3 bullets phrased as genuine decision questions the protagonist faces. These should be questions where the case provides evidence for at least two defensible answers. Avoid yes/no framing — use "To what extent...", "How should X balance...", "What is the right sequence for..." style phrasing.
 
 ## 2) Stakeholder Lenses
+For each stakeholder, write 2-3 sentences covering: (a) what they would prioritize based on case evidence, (b) what they would resist or fear, and (c) where their position directly conflicts with another stakeholder's. The value here is in surfacing disagreements, not listing concerns.
 ### Leadership (CEO/CFO)
-- What they care about + likely disagreement points.
+- Their priorities, fears, and where they clash with operators or the market.
 ### Operators/Employees
-- What they care about + likely disagreement points.
+- Their priorities, fears, and where they clash with leadership or customers.
 ### Customer/Market
-- What they care about + likely disagreement points.
+- Their priorities, fears, and where they clash with what leadership wants to do.
 
 ## 3) Discussion Frameworks
+Pick the 2 most illuminating frameworks from FRAMEWORK_OPTIONS for this case. "Illuminating" means the framework reveals a tension or trade-off that isn't obvious from a plain reading.
 ### Framework 1: <name from FRAMEWORK_OPTIONS>
-- Exactly 5 evidence-based bullets.
+- Exactly 5 bullets. Each bullet must: (a) make a specific claim grounded in case evidence, and (b) name the tension or trade-off it reveals. Avoid generic statements like "strong brand" — say what specifically is strong and why it might not be enough.
 ### Framework 2: <name from FRAMEWORK_OPTIONS>
-- Exactly 5 evidence-based bullets.
+- Exactly 5 bullets. Same standard: specific evidence + the tension it surfaces.
 
 ## 4) Classroom Discussion Prompts
 ### Debate Questions
-1. Exactly 6 numbered questions total.
+1. Exactly 6 numbered questions. Each question should force the student to take a side using case evidence. At least 2 questions should be "uncomfortable" — meaning they challenge the most obvious reading of the case or force a trade-off between two things the protagonist clearly values. Avoid generic strategy questions; make them specific to THIS case's facts.
 ### Assumptions to Test
-1. Exactly 3 numbered assumptions; each line must include "How to test: ...".
+1. Exactly 3 numbered assumptions. Each must name a specific belief the protagonist (or the case narrative) takes for granted, explain why it matters, and end with "How to test: ..." providing a concrete analytical step (e.g., "How to test: Compare unit economics at 50% vs. 80% utilization using Exhibit 3 data."). The test should be something a student could actually do with the case materials.
 ### Risks / Second-order Effects
-- Exactly 3 bullets.
+- Exactly 3 bullets. Each should follow the pattern: "If [action from the case] succeeds, it could paradoxically cause [unintended consequence] because [reasoning from case evidence]." The goal is to give students a "did you think about THIS?" card to play in discussion.
 ### Next Analyses
-- Exactly 2 bullets describing what to analyze next.
+- Exactly 2 bullets describing what additional analysis would sharpen the decision — be specific about what data you would need and what it would resolve.
 
 Style constraints:
 - Use only information present in the provided case text.
 - Be specific with names, numbers, and constraints when present.
-- Do not add new facts.`;
+- Do not add new facts or external knowledge.
+- Write in a direct, slightly provocative tone — as if a sharp TA is briefing you before class. Avoid hedge words like "perhaps" or "it could be argued that."`;
 
 export function getFrameworkOptions(caseType: CaseType): string[] {
   return FRAMEWORK_OPTIONS_BY_CASE_TYPE[caseType] || FRAMEWORK_OPTIONS_BY_CASE_TYPE["General Strategy"];
@@ -101,6 +105,66 @@ export function buildSystemPrompt(params: PromptBuildParams): string {
     .replace("{{SESSION_ID}}", sessionId)
     .replace("{{REFINE_FOCUS_BLOCK}}", refineFocusBlock);
 }
+
+// ──────────────────────────────────────────────
+// Text preprocessing — clean extracted PDF text
+// before sending to the model.
+// ──────────────────────────────────────────────
+
+/**
+ * Cleans raw PDF-extracted text to maximize signal per token.
+ *
+ * What it removes:
+ *  - Ivey/HBS/Wharton copyright & authorization boilerplate (repeated every page)
+ *  - Page headers like "Page 5 9B17E016"
+ *  - Excessive whitespace and blank lines
+ *
+ * What it preserves:
+ *  - Exhibit text and data (critical for grounded analysis)
+ *  - Endnote content (contains useful source context)
+ *  - All case body text
+ */
+export function preprocessCaseText(rawText: string): string {
+  let text = rawText;
+
+  // Remove repeated copyright/authorization lines (Ivey, HBS, HEC, etc.)
+  text = text.replace(
+    /This document is authorized for use only in.*?(?:\n|$)/gi,
+    ""
+  );
+  text = text.replace(
+    /This publication may not be transmitted.*?(?:\n|$)/gi,
+    ""
+  );
+  text = text.replace(
+    /Reproduction of this material is not covered.*?(?:\n|$)/gi,
+    ""
+  );
+  text = text.replace(
+    /To order copies or request permission.*?(?:\n|$)/gi,
+    ""
+  );
+  text = text.replace(
+    /Copyright © \d{4},?\s*(?:Richard Ivey|Harvard|Wharton|INSEAD).*?(?:\n|$)/gi,
+    ""
+  );
+
+  // Remove page headers like "Page 5 9B17E016" or standalone case IDs
+  text = text.replace(/^Page\s+\d+\s+\w+\s*$/gm, "");
+  text = text.replace(/^\s*\d[A-Z0-9]{6,8}\s*$/gm, "");
+
+  // Collapse multiple blank lines into one
+  text = text.replace(/\n{3,}/g, "\n\n");
+
+  // Trim leading/trailing whitespace
+  text = text.trim();
+
+  return text;
+}
+
+// ──────────────────────────────────────────────
+// Validation (unchanged — same contract as before)
+// ──────────────────────────────────────────────
 
 function countBullets(block: string): number {
   return (block.match(/^\s*[-*]\s+/gm) || []).length;
