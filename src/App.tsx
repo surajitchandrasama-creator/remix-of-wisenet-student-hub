@@ -9,6 +9,7 @@ import Summarizer from "./pages/Summarizer";
 import Calendar from "./pages/Calendar";
 import Attendance from "./pages/Attendance";
 import NotFound from "./pages/NotFound";
+import FloatingChatbot from "./components/FloatingChatbot";
 
 const queryClient = new QueryClient();
 
@@ -28,6 +29,7 @@ const App = () => (
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
+      <FloatingChatbot />
     </TooltipProvider>
   </QueryClientProvider>
 );

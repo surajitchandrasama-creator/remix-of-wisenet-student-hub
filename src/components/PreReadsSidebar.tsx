@@ -1,10 +1,12 @@
-import { Sparkles, X, Upload, FileText, Loader2, Minus, Maximize2, ExternalLink } from "lucide-react";
-import { useState, useEffect, useRef } from "react";
+import { Sparkles, X, Upload, FileText, Loader2, Minus, Maximize2, ExternalLink, ChevronLeft, ChevronRight, Pencil } from "lucide-react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
+import localforage from "localforage";
 import { cn } from "@/lib/utils";
 import { usePreReadPdfs } from "@/hooks/usePreReadPdfs";
 import { CaseType } from "@/lib/preReadPrompt";
-import { format, addDays } from "date-fns";
+import { format, addDays, isSameDay } from "date-fns";
+import { supabase } from "@/integrations/supabase/client";
 
 interface CalendarSession {
   id: string;
@@ -24,18 +26,13 @@ function formatTime(time: string): string {
   return `${hour}:${m.toString().padStart(2, "0")} ${period}`;
 }
 
-function getTodaySessions(): CalendarSession[] {
+function getSessionsForDateSync(allSessions: CalendarSession[], targetDate: Date): CalendarSession[] {
   try {
-    const stored = localStorage.getItem("calendar-schedule");
-    if (!stored) return [];
-    const all: CalendarSession[] = JSON.parse(stored);
-
-    const today = new Date();
-    const dayOfWeek = today.getDay() === 0 ? 6 : today.getDay() - 1; // Mon=0 ... Sun=6
-    const weekStartDate = addDays(today, -dayOfWeek);
+    const dayOfWeek = targetDate.getDay() === 0 ? 6 : targetDate.getDay() - 1; // Mon=0 ... Sun=6
+    const weekStartDate = addDays(targetDate, -dayOfWeek);
     const weekStartKey = format(weekStartDate, "yyyy-MM-dd");
 
-    return all
+    return allSessions
       .filter((s) => s.weekStart === weekStartKey && s.day === dayOfWeek)
       .sort((a, b) => {
         const toMins = (t: string) => {
@@ -59,15 +56,59 @@ const PreReadsSidebar = () => {
     updatePdfCaseType,
     updatePdfRefinement,
     summarizePdf,
+    updatePdfSummary,
   } = usePreReadPdfs();
 
-  const [todaySessions] = useState<CalendarSession[]>(getTodaySessions);
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [allSessions, setAllSessions] = useState<CalendarSession[]>([]);
+
+  useEffect(() => {
+    const fetchSchedules = async () => {
+      try {
+        const { data, error } = await supabase.from("schedules").select("*");
+        if (data && !error) {
+          const mappedSessions: CalendarSession[] = (data as any[]).map(row => ({
+            id: row.id,
+            day: row.day,
+            date: row.date,
+            startTime: row.start_time,
+            endTime: row.end_time,
+            courseCode: row.course_code,
+            sessionType: row.session_type,
+            faculty: row.faculty,
+            weekStart: row.week_start
+          }));
+          setAllSessions(mappedSessions);
+        }
+      } catch (err) {
+        console.error("Failed fetching schedules sidebar", err);
+      }
+    };
+
+    fetchSchedules();
+
+    // Listen to updates from schedule uploads
+    const handleUpdate = () => fetchSchedules();
+    window.addEventListener("calendar-updated", handleUpdate);
+
+    return () => window.removeEventListener("calendar-updated", handleUpdate);
+  }, []);
+
+  // Update sessions whenever selected date changes
+  const sessions = useMemo(() => getSessionsForDateSync(allSessions, selectedDate), [selectedDate, allSessions]);
 
   const userSession = JSON.parse(localStorage.getItem("wisenet_session") || "{}");
   const isTA = userSession.role === "TA";
 
-  const todayLabel = format(new Date(), "EEE, d MMM yyyy");
-  const totalPdfsToday = todaySessions.reduce((count, session) => count + ((pdfsByItem[session.id] || []).length), 0);
+  const dateLabel = format(selectedDate, "EEE, d MMM yyyy");
+  const isToday = isSameDay(selectedDate, new Date());
+  const labelPrefix = isToday ? "Today - " : "";
+  const totalPdfs = sessions.reduce((count, session) => count + ((pdfsByItem[session.id] || []).length), 0);
+
+  // Generate next 7 days for the slider
+  const upcomingDays = useMemo(() => {
+    return Array.from({ length: 7 }).map((_, i) => addDays(new Date(), i));
+  }, []);
 
   return (
     <aside className="sticky top-14 h-[calc(100vh-3.5rem)] w-full overflow-y-auto border-l bg-card shadow-elevated">
@@ -80,9 +121,31 @@ const PreReadsSidebar = () => {
       </div>
 
       <div className="p-4 space-y-5">
-        {todaySessions.length === 0 ? (
+        {/* Date Slider */}
+        <div className="flex gap-2 w-full overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-muted-foreground/20 scrollbar-track-transparent snap-x">
+          {upcomingDays.map((date) => {
+            const isSelected = isSameDay(date, selectedDate);
+            return (
+              <button
+                key={date.toISOString()}
+                onClick={() => setSelectedDate(date)}
+                className={cn(
+                  "flex flex-col items-center justify-center min-w-[60px] p-2 rounded-lg border text-sm transition-colors snap-start",
+                  isSelected
+                    ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                    : "bg-card text-muted-foreground hover:bg-secondary border-border"
+                )}
+              >
+                <span className="text-xs font-medium uppercase">{format(date, "EEE")}</span>
+                <span className="text-base font-bold">{format(date, "d")}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {sessions.length === 0 ? (
           <div className="text-center py-8 space-y-1">
-            <p className="text-sm text-muted-foreground">No classes scheduled for today.</p>
+            <p className="text-sm text-muted-foreground">No classes scheduled for {isToday ? "today" : "this date"}.</p>
             {/* UX(2): empty-state guidance */}
             <p className="text-xs text-muted-foreground">
               {isTA ? "Upload a pre-read PDF when sessions are available." : "Your TA will upload pre-read PDFs for each session."}
@@ -92,19 +155,19 @@ const PreReadsSidebar = () => {
           <div>
             <div className="sticky top-0 z-10 mb-2 bg-card pb-1">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Today - {todayLabel}
+                {labelPrefix}{dateLabel}
               </span>
             </div>
 
-            {totalPdfsToday === 0 && (
+            {totalPdfs === 0 && (
               <p className="mb-2 text-xs text-muted-foreground">
                 {/* UX(2): empty-state guidance when sessions exist but no PDFs */}
-                {isTA ? "No pre-read PDFs attached yet. Use the upload icon on a session to add one." : "No pre-read PDFs have been shared yet for today."}
+                {isTA ? "No pre-read PDFs attached yet. Use the upload icon on a session to add one." : `No pre-read PDFs have been shared yet for ${isToday ? "today" : "this date"}.`}
               </p>
             )}
 
             <div className="space-y-2">
-              {todaySessions.map((session) => {
+              {sessions.map((session) => {
                 const itemKey = session.id;
                 const pdfs = pdfsByItem[itemKey] || [];
 
@@ -146,6 +209,7 @@ const PreReadsSidebar = () => {
                             onCaseTypeChange={(caseType) => updatePdfCaseType(itemKey, idx, caseType)}
                             onRefinementChange={(value) => updatePdfRefinement(itemKey, idx, value)}
                             onSummarize={() => summarizePdf(itemKey, idx)}
+                            onSummaryEdit={isTA ? (newSummary) => updatePdfSummary(itemKey, idx, newSummary) : undefined}
                           />
                         ))}
                       </div>
@@ -188,13 +252,19 @@ interface PdfCardProps {
   onCaseTypeChange: (caseType: CaseType | "") => void;
   onRefinementChange: (value: string) => void;
   onSummarize: () => void;
+  onSummaryEdit?: (newSummary: string) => void;
 }
 
 const FEEDBACK_KEY = "wisenet_summary_feedback";
 
-export const PdfCard = ({ itemKey, isTA, pdf, onRemove, onCaseTypeChange, onRefinementChange, onSummarize }: PdfCardProps) => {
+export const PdfCard = ({ itemKey, isTA, pdf, onRemove, onCaseTypeChange, onRefinementChange, onSummarize, onSummaryEdit }: PdfCardProps) => {
   const [isPopupWindowOpen, setIsPopupWindowOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
+
+  // Edit mode state
+  const [isEditingMode, setIsEditingMode] = useState(false);
+  const [tempSummary, setTempSummary] = useState(pdf.summary);
+
   const feedbackId = `${itemKey}::${pdf.fileName}`;
   const [feedback, setFeedback] = useState<"up" | "down" | "">(() => {
     try {
@@ -213,6 +283,11 @@ export const PdfCard = ({ itemKey, isTA, pdf, onRemove, onCaseTypeChange, onRefi
     }
     prevLoading.current = pdf.loading;
   }, [pdf.loading, pdf.summary]);
+
+  useEffect(() => {
+    // Keep tempSummary synced when it loads newly generated content
+    setTempSummary(pdf.summary);
+  }, [pdf.summary]);
 
   useEffect(() => {
     try {
@@ -325,39 +400,91 @@ export const PdfCard = ({ itemKey, isTA, pdf, onRemove, onCaseTypeChange, onRefi
 
               {!isMinimized && (
                 <div className="flex-1 overflow-y-auto p-6 lg:p-10 prose prose-sm md:prose-base dark:prose-invert max-w-none bg-background">
-                  {/* UX(7): short extracted text warning */}
-                  {pdf.extractedTextLength < 300 && (
-                    <p className="text-xs text-muted-foreground mb-2">
-                      Limited extracted text detected (&lt; 300 chars). Output quality may be reduced.
-                    </p>
+
+                  {isTA && !isEditingMode && onSummaryEdit && (
+                    <div className="flex justify-end mb-4">
+                      <button
+                        onClick={() => {
+                          setTempSummary(pdf.summary);
+                          setIsEditingMode(true);
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 rounded transition-colors"
+                      >
+                        <Pencil className="w-3.5 h-3.5" /> Edit Summary
+                      </button>
+                    </div>
                   )}
-                  {/* UX(8): truncation disclosure */}
-                  {pdf.truncated && (
-                    <p className="text-xs text-muted-foreground mb-2">
-                      Source text was truncated to fit model limits (25,000 characters).
-                    </p>
+
+                  {isEditingMode ? (
+                    <div className="flex flex-col gap-3 min-h-[50vh]">
+                      <textarea
+                        className="w-full h-full flex-1 p-4 rounded-md border border-input bg-card text-foreground text-sm focus:outline-none focus:ring-1 focus:ring-primary/50 resize-none font-mono tracking-tight"
+                        value={tempSummary}
+                        onChange={(e) => setTempSummary(e.target.value)}
+                      />
+                      <div className="flex justify-end gap-2 mt-2">
+                        <button
+                          onClick={() => {
+                            setIsEditingMode(false);
+                            setTempSummary(pdf.summary);
+                          }}
+                          className="px-4 py-2 text-xs font-medium border border-input rounded hover:bg-muted text-muted-foreground transition-colors"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (onSummaryEdit) {
+                              onSummaryEdit(tempSummary);
+                            }
+                            setIsEditingMode(false);
+                          }}
+                          className="px-4 py-2 text-xs font-medium bg-primary text-primary-foreground rounded hover:opacity-90 transition-opacity"
+                        >
+                          Save Changes
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {/* UX(7): short extracted text warning */}
+                      {pdf.extractedTextLength < 300 && (
+                        <p className="text-xs text-muted-foreground mb-4 border-l-2 border-amber-500/50 pl-3">
+                          Limited extracted text detected (&lt; 300 chars). Output quality may be reduced.
+                        </p>
+                      )}
+                      {/* UX(8): truncation disclosure */}
+                      {pdf.truncated && (
+                        <p className="text-xs text-muted-foreground mb-4 border-l-2 border-amber-500/50 pl-3">
+                          Source text was truncated to fit model limits (25,000 characters).
+                        </p>
+                      )}
+                      <ReactMarkdown>{pdf.summary}</ReactMarkdown>
+                      {/* UX(4): policy label */}
+                      <p className="mt-8 text-xs text-muted-foreground border-t border-border pt-4">Discussion prep only, not a solver.</p>
+                    </>
                   )}
-                  <ReactMarkdown>{pdf.summary}</ReactMarkdown>
-                  {/* UX(4): policy label */}
-                  <p className="mt-4 text-xs text-muted-foreground">Discussion prep only, not a solver.</p>
-                  {/* UX(11): summary feedback with local persistence */}
-                  <div className="mt-3 flex items-center gap-2 text-xs">
-                    <button
-                      onClick={() => setFeedback("up")}
-                      disabled={feedback === "up"}
-                      className="rounded border px-2 py-1 text-muted-foreground hover:text-foreground disabled:opacity-60"
-                    >
-                      👍 Helpful
-                    </button>
-                    <button
-                      onClick={() => setFeedback("down")}
-                      disabled={feedback === "down"}
-                      className="rounded border px-2 py-1 text-muted-foreground hover:text-foreground disabled:opacity-60"
-                    >
-                      👎 Needs improvement
-                    </button>
-                    {feedback && <span className="text-muted-foreground">Thanks - feedback saved.</span>}
-                  </div>
+
+                  {/* UX(11): summary feedback with local persistence, hide when editing */}
+                  {!isEditingMode && (
+                    <div className="mt-4 flex items-center gap-2 text-xs">
+                      <button
+                        onClick={() => setFeedback("up")}
+                        disabled={feedback === "up"}
+                        className="rounded border px-2 py-1 text-muted-foreground hover:text-foreground disabled:opacity-60"
+                      >
+                        👍 Helpful
+                      </button>
+                      <button
+                        onClick={() => setFeedback("down")}
+                        disabled={feedback === "down"}
+                        className="rounded border px-2 py-1 text-muted-foreground hover:text-foreground disabled:opacity-60"
+                      >
+                        👎 Needs improvement
+                      </button>
+                      {feedback && <span className="text-muted-foreground">Thanks - feedback saved.</span>}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

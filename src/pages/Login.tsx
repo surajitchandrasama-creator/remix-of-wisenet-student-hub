@@ -22,6 +22,7 @@ const Login = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
+  const [rollNumber, setRollNumber] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [role, setRole] = useState<UserRole>("student");
 
@@ -39,7 +40,7 @@ const Login = () => {
         return;
       }
 
-      usersData[email] = { password, fullName, role };
+      usersData[email] = { password, fullName, role, rollNumber };
       localStorage.setItem("wisenet_users", JSON.stringify(usersData));
 
       setAlert({ message: "Account created successfully! Please log in.", type: "success" });
@@ -48,7 +49,7 @@ const Login = () => {
     } else {
       const user = usersData[email];
       if (user && user.password === password) {
-        localStorage.setItem("wisenet_session", JSON.stringify({ email, fullName: user.fullName, role: user.role }));
+        localStorage.setItem("wisenet_session", JSON.stringify({ email, fullName: user.fullName, role: user.role, rollNumber: user.rollNumber }));
         navigate("/dashboard");
       } else {
         setAlert({ message: "Invalid email or password.", type: "warning" });
@@ -75,8 +76,8 @@ const Login = () => {
           {alert && (
             <div
               className={`flex items-center justify-between rounded-full px-5 py-2.5 text-sm ${alert.type === "warning"
-                  ? "bg-orange-50 text-orange-700 border border-orange-200"
-                  : "bg-green-50 text-green-700 border border-green-200"
+                ? "bg-orange-50 text-orange-700 border border-orange-200"
+                : "bg-green-50 text-green-700 border border-green-200"
                 }`}
             >
               <span>{alert.message}</span>
@@ -91,8 +92,8 @@ const Login = () => {
             <button
               onClick={() => setMode("login")}
               className={`pb-2.5 px-4 text-sm font-medium transition-colors ${mode === "login"
-                  ? "text-primary border-b-2 border-primary"
-                  : "text-muted-foreground hover:text-foreground"
+                ? "text-primary border-b-2 border-primary"
+                : "text-muted-foreground hover:text-foreground"
                 }`}
             >
               Log In
@@ -100,8 +101,8 @@ const Login = () => {
             <button
               onClick={() => setMode("signup")}
               className={`pb-2.5 px-4 text-sm font-medium transition-colors ${mode === "signup"
-                  ? "text-primary border-b-2 border-primary"
-                  : "text-muted-foreground hover:text-foreground"
+                ? "text-primary border-b-2 border-primary"
+                : "text-muted-foreground hover:text-foreground"
                 }`}
             >
               Sign Up
@@ -141,6 +142,14 @@ const Login = () => {
                   placeholder="Full Name"
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
+                  required
+                  className="w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                />
+                <input
+                  type="text"
+                  placeholder="Roll Number (e.g. PGP-25-213)"
+                  value={rollNumber}
+                  onChange={(e) => setRollNumber(e.target.value)}
                   required
                   className="w-full rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
                 />
