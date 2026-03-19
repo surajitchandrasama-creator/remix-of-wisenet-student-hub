@@ -1,10 +1,11 @@
-import { Sparkles, X, Upload, FileText, Loader2, Minus, Maximize2, ExternalLink, ChevronLeft, ChevronRight, Pencil } from "lucide-react";
+import { Sparkles, X, Upload, FileText, Loader2, Minus, Maximize2, ExternalLink, ChevronLeft, ChevronRight, Pencil, Mail, Trash2, Plus } from "lucide-react";
 import { useState, useEffect, useRef, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import localforage from "localforage";
 import { cn } from "@/lib/utils";
 import { usePreReadPdfs } from "@/hooks/usePreReadPdfs";
 import { CaseType } from "@/lib/preReadPrompt";
+import { useToast } from "@/hooks/use-toast";
 import { format, addDays, isSameDay } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -62,6 +63,78 @@ const PreReadsSidebar = () => {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [allSessions, setAllSessions] = useState<CalendarSession[]>([]);
 
+  interface StudentContact {
+    roll: string;
+    name: string;
+    email: string;
+    selected?: boolean;
+  }
+
+  const [isReminderOpen, setIsReminderOpen] = useState(false);
+  const [students, setStudents] = useState<StudentContact[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("wisenet_student_list") || "[]");
+    } catch {
+      return [];
+    }
+  });
+
+  const [newRoll, setNewRoll] = useState("");
+  const [newName, setNewName] = useState("");
+  const [newEmail, setNewEmail] = useState("");
+
+  useEffect(() => {
+    localStorage.setItem("wisenet_student_list", JSON.stringify(students));
+  }, [students]);
+
+  const handleAddStudent = () => {
+    if (!newRoll.trim() || !newName.trim() || !newEmail.trim()) return;
+    setStudents(prev => [...prev, { roll: newRoll.trim(), name: newName.trim(), email: newEmail.trim(), selected: true }]);
+    setNewRoll("");
+    setNewName("");
+    setNewEmail("");
+  };
+
+  const handleDeleteStudent = (index: number) => {
+    setStudents(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const toggleStudentSelection = (index: number) => {
+    setStudents(prev => {
+      const newList = [...prev];
+      newList[index] = { ...newList[index], selected: newList[index].selected === false ? true : false };
+      return newList;
+    });
+  };
+
+  const handleMailReminder = () => {
+    const selectedStudents = students.filter(s => s.selected !== false);
+    if (selectedStudents.length === 0) {
+      alert("No students selected to send reminder.");
+      return;
+    }
+
+    // Determine tomorrow's sessions
+    const tomorrow = addDays(new Date(), 1);
+    const tomorrowSessions = getSessionsForDateSync(allSessions, tomorrow);
+    const sessionsWithPdfs = tomorrowSessions.filter(s => (pdfsByItem[s.id] || []).length > 0);
+
+    if (sessionsWithPdfs.length === 0) {
+      alert("No pre-reads attached for tomorrow's classes yet.");
+      return;
+    }
+
+    let body = `Hi Everyone,\n\nTo make sure we get the most out of our upcoming sessions, please ensure you have completed the assigned pre-reading materials before arriving at class.\n\nComing prepared allows us to spend less time on basic definitions and more time on active discussion, hands-on problem solving, and deeper analysis.\n\nPre-reads are attached for the following classes tomorrow:\n`;
+
+    sessionsWithPdfs.forEach(s => {
+      body += `- ${s.courseCode} (${s.sessionType} with ${s.faculty}) from ${formatTime(s.startTime)} to ${formatTime(s.endTime)}\n`;
+    });
+
+    const toList = selectedStudents.map(s => s.email).join(",");
+    const mailto = `mailto:${encodeURIComponent(toList)}?subject=${encodeURIComponent("Reminder: Pre-reading Materials Required for Tomorrow's Classes")}&body=${encodeURIComponent(body)}`;
+    window.open(mailto, "_blank");
+  };
+
   useEffect(() => {
     const fetchSchedules = async () => {
       try {
@@ -111,13 +184,23 @@ const PreReadsSidebar = () => {
   }, []);
 
   return (
-    <aside className="sticky top-14 h-[calc(100vh-3.5rem)] w-full overflow-y-auto border-l bg-card shadow-elevated">
-      <div className="border-b px-5 py-3">
-        <h2 className="text-base font-semibold text-foreground">Upcoming Pre-reads</h2>
-        {/* UX(1): subtle instruction banner */}
-        <p className="mt-1 text-xs text-muted-foreground">
-          Select case type, generate summary, then view the structured discussion brief.
-        </p>
+    <aside className="sticky top-14 h-[calc(100vh-3.5rem)] w-full overflow-y-auto border-l bg-card shadow-elevated relative">
+      <div className="border-b px-5 py-3 flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-foreground">Upcoming Pre-reads</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Select case type, generate summary, then view the structured discussion brief.
+          </p>
+        </div>
+        {isTA && (
+          <button
+            onClick={() => setIsReminderOpen(true)}
+            className="flex items-center gap-1.5 rounded-md bg-primary/10 px-2.5 py-1.5 text-xs font-medium text-primary hover:bg-primary/20 transition-colors shrink-0"
+          >
+            <Mail className="h-4 w-4" />
+            Reminder
+          </button>
+        )}
       </div>
 
       <div className="p-4 space-y-5">
@@ -230,6 +313,132 @@ const PreReadsSidebar = () => {
         onChange={handleFileChange}
         className="hidden"
       />
+
+      {isReminderOpen && isTA && (
+        <div className="fixed z-[60] inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-card border border-border rounded-xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between px-5 py-4 border-b">
+              <div className="flex items-center gap-2 font-semibold text-foreground">
+                <Mail className="h-5 w-5 text-primary" />
+                Student Reminders Settings
+              </div>
+              <button
+                onClick={() => setIsReminderOpen(false)}
+                className="p-1.5 rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="p-5 flex-1 overflow-y-auto space-y-6">
+              <div>
+                <h3 className="text-sm font-medium mb-3">Add Student</h3>
+                <div className="flex flex-wrap items-end gap-3">
+                  <div className="flex-1 min-w-[120px]">
+                    <label className="block text-xs text-muted-foreground mb-1">Roll / ID</label>
+                    <input
+                      type="text"
+                      value={newRoll}
+                      onChange={e => setNewRoll(e.target.value)}
+                      placeholder="e.g. 101"
+                      className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                    />
+                  </div>
+                  <div className="flex-1 min-w-[150px]">
+                    <label className="block text-xs text-muted-foreground mb-1">Name</label>
+                    <input
+                      type="text"
+                      value={newName}
+                      onChange={e => setNewName(e.target.value)}
+                      placeholder="e.g. John Doe"
+                      className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                    />
+                  </div>
+                  <div className="flex-[2] min-w-[200px]">
+                    <label className="block text-xs text-muted-foreground mb-1">Email</label>
+                    <input
+                      type="email"
+                      value={newEmail}
+                      onChange={e => setNewEmail(e.target.value)}
+                      placeholder="e.g. student@example.com"
+                      className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                    />
+                  </div>
+                  <button
+                    onClick={handleAddStudent}
+                    className="flex-shrink-0 flex items-center gap-1 bg-primary text-primary-foreground px-4 py-1.5 rounded-md text-sm font-medium hover:opacity-90 h-9"
+                  >
+                    <Plus className="h-4 w-4" /> Add
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-sm font-medium mb-3">Saved Students List ({students.length})</h3>
+                {students.length === 0 ? (
+                  <p className="text-sm text-muted-foreground bg-muted/50 p-4 rounded-md text-center">
+                    No students added yet. Add students to send reminders.
+                  </p>
+                ) : (
+                  <div className="border rounded-md overflow-hidden bg-card text-sm">
+                    <table className="w-full text-left">
+                      <thead className="bg-muted/50 text-muted-foreground text-xs uppercase">
+                        <tr>
+                          <th className="px-4 py-2 font-semibold w-12 text-center">Inc</th>
+                          <th className="px-4 py-2 font-semibold">Roll</th>
+                          <th className="px-4 py-2 font-semibold">Name</th>
+                          <th className="px-4 py-2 font-semibold">Email</th>
+                          <th className="px-4 py-2 font-semibold text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {students.map((student, idx) => (
+                          <tr key={idx} className="hover:bg-muted/20">
+                            <td className="px-4 py-2 text-center">
+                              <input
+                                type="checkbox"
+                                className="cursor-pointer"
+                                checked={student.selected !== false}
+                                onChange={() => toggleStudentSelection(idx)}
+                              />
+                            </td>
+                            <td className="px-4 py-2 font-medium">{student.roll}</td>
+                            <td className="px-4 py-2">{student.name}</td>
+                            <td className="px-4 py-2 text-muted-foreground">{student.email}</td>
+                            <td className="px-4 py-2 text-right">
+                              <button
+                                onClick={() => handleDeleteStudent(idx)}
+                                className="text-muted-foreground hover:text-destructive p-1 rounded transition-colors"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="p-5 border-t bg-muted/20 flex items-center justify-between">
+              <p className="text-xs text-muted-foreground max-w-[300px]">
+                Sends a reminder email covering tomorrow's sessions that have pre-reads attached.
+              </p>
+              <button
+                onClick={handleMailReminder}
+                disabled={students.length === 0}
+                className="bg-primary text-primary-foreground px-5 py-2 flex items-center gap-2 rounded-md text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Mail className="h-4 w-4" />
+                Email Reminder for Tomorrow
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
     </aside>
   );
 };
