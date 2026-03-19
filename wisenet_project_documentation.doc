@@ -1,0 +1,157 @@
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+<meta charset="utf-8">
+<style>
+  body { font-family: Calibri, sans-serif; font-size: 11pt; }
+  h1 { font-size: 24pt; color: #2F5496; }
+  h2 { font-size: 18pt; color: #2F5496; border-bottom: 1px solid #2F5496; padding-bottom: 2px; margin-top: 24px;}
+  h3 { font-size: 14pt; color: #1F3763; margin-top: 16px;}
+  table { border-collapse: collapse; width: 100%; border: 1px solid black; margin-top: 12px; margin-bottom: 12px;}
+  th, td { border: 1px solid black; padding: 8px; text-align: left; }
+  th { background-color: #D9E1F2; color: #44546A; }
+  .code { font-family: Consolas, monospace; background: #F2F2F2; padding: 12px; border: 1px solid #D9D9D9; display: block; white-space: pre; margin-top: 12px; margin-bottom: 12px;}
+</style>
+</head>
+<body>
+<h1>Wisenet Student Hub Improvement Project Documentation</h1>
+<p>This document outlines the architecture, requirements, and design flow for the recently implemented features and improvements in the Wisenet Student Hub project.</p>
+
+<h2>1. Project Architecture</h2>
+<p>The Wisenet Student Hub is built on a modern, scalable web stack utilizing a component-based frontend, a robust backend-as-a-service, and integrated artificial intelligence capabilities.</p>
+
+<h3>Technology Stack</h3>
+<ul>
+<li><b>Frontend Library:</b> React 18 (with Hooks and functional components)</li>
+<li><b>Build Tool:</b> Vite (for fast development server and optimized production builds)</li>
+<li><b>Language:</b> TypeScript (for static type safety and improved developer experience)</li>
+<li><b>Styling:</b> Tailwind CSS + Radix UI / <code>shadcn/ui</code> (for customizable, accessible UI components)</li>
+<li><b>State Management & Data Fetching:</b> TanStack React Query (for caching and asynchronous state management)</li>
+<li><b>Routing:</b> React Router DOM</li>
+<li><b>Backend & Database:</b> Supabase (providing serverless backend, PostgreSQL database, and authentication)</li>
+<li><b>AI Integration:</b> <code>@google/generative-ai</code> (Google Gemini) for the intelligent chatbot assistant and data indexing function calling.</li>
+</ul>
+
+<h3>Architectural Layers</h3>
+<ol>
+<li><b>Presentation Layer (UI):</b> Built with React and structured using Tailwind CSS. Contains reusable UI components like the Image Carousel, Accordions for Term-Based Subject Display, and the Chatbot Interface.</li>
+<li><b>Application Logic Layer:</b> Manages application state and business rules. Includes custom React hooks, routing logic, and data processing.</li>
+<li><b>Data Integration Layer:</b> Uses React Query combined with Supabase client to interact with the database. Manages external data sources such as local files and Google Sheets for attendance.</li>
+<li><b>AI Services Layer:</b> A dedicated module for the Gemini Assistant that orchestrates prompts, executes function calls to retrieve context (schedules, timeline, activities), and returns natural language responses to the user.</li>
+</ol>
+
+<h2>2. Requirements Table</h2>
+<p>The following table categorizes the primary requirements based on the recent system improvements:</p>
+<table>
+  <tr>
+    <th>ID</th>
+    <th>Requirement Name</th>
+    <th>Type</th>
+    <th>Description</th>
+  </tr>
+  <tr>
+    <td><b>REQ-01</b></td>
+    <td><b>Gemini AI Chatbot Integration</b></td>
+    <td>Functional</td>
+    <td>The system must include an intelligent assistant powered by Gemini AI capable of answering queries related to student schedules, attendance (via Google Sheets), and timeline activities using function calling and local data indexing.</td>
+  </tr>
+  <tr>
+    <td><b>REQ-02</b></td>
+    <td><b>Timeline Activity Management</b></td>
+    <td>Functional</td>
+    <td>TAs must be able to perform full CRUD (Create, Edit, Delete) operations on timeline activities. Students can view these updates.</td>
+  </tr>
+  <tr>
+    <td><b>REQ-03</b></td>
+    <td><b>Term-Based Dashboard Display</b></td>
+    <td>Functional</td>
+    <td>The dashboard must display subjects categorized by term. The current term must be expanded by default (as cards), while previous terms are collapsed but expandable without losing their state.</td>
+  </tr>
+  <tr>
+    <td><b>REQ-04</b></td>
+    <td><b>Automated Reminder Emails</b></td>
+    <td>Functional</td>
+    <td>TAs must be able to select/deselect specific students and send reminder emails containing a "Hi Everyone" greeting. TAs should receive an automated notification after emails are dispatched.</td>
+  </tr>
+  <tr>
+    <td><b>REQ-05</b></td>
+    <td><b>Dynamic Image Carousel</b></td>
+    <td>Functional</td>
+    <td>The homepage must feature a dynamic image carousel to showcase event images, replacing static hero sections.</td>
+  </tr>
+  <tr>
+    <td><b>REQ-06</b></td>
+    <td><b>Feedback Collection Setup</b></td>
+    <td>Functional</td>
+    <td>Provide a structured mechanism (e.g., integrated Google Form questions) to collect user feedback specifically regarding the new Dashboard, Timeline, and Chatbot features.</td>
+  </tr>
+  <tr>
+    <td><b>REQ-07</b></td>
+    <td><b>Performance & Responsiveness</b></td>
+    <td>Non-Functional</td>
+    <td>The application UI must load seamlessly using Vite and caching mechanics, and maintain a fully responsive, aesthetic layout across devices.</td>
+  </tr>
+  <tr>
+    <td><b>REQ-08</b></td>
+    <td><b>Type Safety & Maintainability</b></td>
+    <td>Non-Functional</td>
+    <td>Codebase must be strictly typed using TypeScript to minimize runtime errors and improve codebase maintainability.</td>
+  </tr>
+</table>
+
+<h2>3. Design Flow</h2>
+
+<h3>A. High-Level System Architecture Flow</h3>
+<p>This structure illustrates the high-level data flow between the user interface, backend data storage, and the external AI services.</p>
+<div class="code">
+Client (User Browser / React Application)
+  ├── Frontend Architecture
+  │     ├── UI Components
+  │     ├── Chatbot Interface
+  │     └── Term Dashboard
+  ├── Backend Services
+  │     ├── Supabase Database
+  │     └── Supabase Auth
+  └── External Services
+        ├── Google Gemini API
+        └── Google Sheets API / Data
+
+Data Operations:
+- Dashboard Fetches Subjects & Timeline from Supabase
+- Chat Interface Sends Query to Gemini
+- Gemini Returns Function Call (Need Context) to UI
+- UI Fetches Attendance from Google Sheets & Local Schedule Context from Supabase
+- UI Returns Context to Gemini
+- Gemini Iterates and returns Final Natural Language Response to Chat
+</div>
+
+<h3>B. Sequence Flow: AI Chatbot Query Resolution</h3>
+<p>This outlines the step-by-step process of how the application handles a student's question using the newly integrated Gemini assistant and data indices.</p>
+<div class="code">
+1. Student -> Chatbot UI: "What is my assignment status?"
+2. Chatbot UI -> Gemini Integration Service: Forward User Prompt
+3. Service -> Google Gemini AI: Request context generation (with tools/functions)
+4. Gemini AI -> Service: Function Call: get_timeline_activities()
+5. Service -> PostgreSQL (Supabase) / Local Data: Fetch Timeline Data
+6. Database -> Service: Return Data
+7. Service -> Gemini AI: Return Function Result
+8. Gemini AI -> Service: Generated Natural Language Response
+9. Service -> Chatbot UI: Deliver Response Component
+10. UI -> Student: Display Output
+</div>
+
+<h3>C. Sequence Flow: Reminder Email Workflow</h3>
+<p>This represents the specific flow added to improve how TAs manage and send reminder notifications.</p>
+<div class="code">
+1. TA -> Email Management UI: Select specific students from list
+2. TA -> Email Management UI: Update Email content (Add 'Hi Everyone')
+3. TA -> Email Management UI: Click 'Send Reminder'
+4. UI -> Supabase Edge Functions / Backend: Post email payload (Recipients in 'To' field)
+5. Backend -> Email Service: Dispatch Emails to Students
+6. Email Service -> Backend: Delivery Confirmation
+7. Backend -> Email Service: Send Delivery Notification to TA
+8. Email Service -> TA: Notification Received
+9. Backend -> UI: Success Status
+10. UI -> TA: Display Success Toast
+</div>
+</body>
+</html>
