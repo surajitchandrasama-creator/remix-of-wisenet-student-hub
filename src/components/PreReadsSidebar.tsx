@@ -9,6 +9,14 @@ import { useToast } from "@/hooks/use-toast";
 import { format, addDays, isSameDay } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
 
+function normalizeSummaryMarkdown(summary: string): string {
+  const trimmed = summary.trim();
+  const fencedMatch = trimmed.match(/^```(?:markdown|md)?\s*([\s\S]*?)\s*```$/i);
+
+  if (!fencedMatch) return trimmed;
+  return fencedMatch[1].trim();
+}
+
 interface CalendarSession {
   id: string;
   day: number;
@@ -508,6 +516,8 @@ export const PdfCard = ({ itemKey, isTA, pdf, onRemove, onCaseTypeChange, onRefi
     }
   }, [feedback, feedbackId]);
 
+  const displaySummary = useMemo(() => normalizeSummaryMarkdown(pdf.summary), [pdf.summary]);
+
   return (
     <div className="rounded-md border bg-secondary/50 p-2.5 text-xs">
       <div className="flex items-center gap-1.5">
@@ -608,7 +618,7 @@ export const PdfCard = ({ itemKey, isTA, pdf, onRemove, onCaseTypeChange, onRefi
               </div>
 
               {!isMinimized && (
-                <div className="flex-1 overflow-y-auto p-6 lg:p-10 prose prose-sm md:prose-base dark:prose-invert max-w-none bg-background">
+                <div className="flex-1 overflow-y-auto bg-gradient-to-b from-background via-background to-secondary/20 p-6 lg:p-8">
 
                   {isTA && !isEditingMode && onSummaryEdit && (
                     <div className="flex justify-end mb-4">
@@ -665,10 +675,51 @@ export const PdfCard = ({ itemKey, isTA, pdf, onRemove, onCaseTypeChange, onRefi
                       {/* UX(8): truncation disclosure */}
                       {pdf.truncated && (
                         <p className="text-xs text-muted-foreground mb-4 border-l-2 border-amber-500/50 pl-3">
-                          Source text was truncated to fit model limits (25,000 characters).
+                          Source text was truncated to fit model limits (200,000 characters).
                         </p>
                       )}
-                      <ReactMarkdown>{pdf.summary}</ReactMarkdown>
+                      <div className="rounded-2xl border border-border/70 bg-card/95 shadow-sm">
+                        <div className="border-b border-border/60 px-5 py-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                            Structured Discussion Brief
+                          </p>
+                        </div>
+                        <div className="px-5 py-5 md:px-7 md:py-6">
+                          <ReactMarkdown
+                            components={{
+                              h2: ({ node, ...props }) => (
+                                <h2 className="mt-8 first:mt-0 border-b border-border/60 pb-3 text-lg font-semibold text-foreground" {...props} />
+                              ),
+                              h3: ({ node, ...props }) => (
+                                <h3 className="mt-5 text-sm font-semibold uppercase tracking-[0.12em] text-primary" {...props} />
+                              ),
+                              p: ({ node, ...props }) => (
+                                <p className="mt-3 text-sm leading-7 text-foreground/90" {...props} />
+                              ),
+                              ul: ({ node, ...props }) => (
+                                <ul className="mt-3 space-y-2 pl-5 text-sm leading-7 text-foreground/90" {...props} />
+                              ),
+                              ol: ({ node, ...props }) => (
+                                <ol className="mt-3 space-y-2 pl-5 text-sm leading-7 text-foreground/90" {...props} />
+                              ),
+                              li: ({ node, ...props }) => <li className="marker:text-primary" {...props} />,
+                              code: ({ inline, className, children, ...props }: any) =>
+                                inline ? (
+                                  <code className="rounded bg-secondary px-1.5 py-0.5 font-mono text-[0.9em] text-foreground" {...props}>
+                                    {children}
+                                  </code>
+                                ) : (
+                                  <code className="block overflow-x-auto rounded-xl bg-secondary/80 p-4 font-mono text-xs leading-6 text-foreground" {...props}>
+                                    {children}
+                                  </code>
+                                ),
+                              pre: ({ node, ...props }) => <pre className="mt-4 overflow-x-auto" {...props} />,
+                            }}
+                          >
+                            {displaySummary}
+                          </ReactMarkdown>
+                        </div>
+                      </div>
                       {/* UX(4): policy label */}
                       <p className="mt-8 text-xs text-muted-foreground border-t border-border pt-4">Discussion prep only, not a solver.</p>
                     </>

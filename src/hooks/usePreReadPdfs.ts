@@ -295,7 +295,7 @@ export function usePreReadPdfs() {
         if (!summary) throw new Error("No summary generated.");
 
         // ── Format repair if needed (also via Gemini now) ──
-        if (!isValidSummary(summary)) {
+          if (!isValidSummary(summary, pdf.caseType as CaseType)) {
           const repairedSummary = await callGeminiFlash(
             FORMAT_REPAIR_SYSTEM_PROMPT,
             buildFormatRepairUserPrompt(summary)
